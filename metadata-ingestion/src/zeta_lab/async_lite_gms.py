@@ -227,8 +227,8 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
             raise HTTPException(status_code=400, detail="EntityUrn and aspectName are required")
 
         # Process special aspects
-        if aspect_name in ['dataPlatformInstance', 'subTypes', 'browsePathsV2', 'container']:
-            aspect_value = process_special_aspect(aspect_value)
+        # if aspect_name in ['dataPlatformInstance', 'subTypes', 'browsePathsV2', 'container']:
+        aspect_value = process_special_aspect(aspect_value)
 
         await queue.put((
             urn,
