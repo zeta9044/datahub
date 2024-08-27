@@ -1,23 +1,60 @@
+# 확실히 Python 3.10을 사용하고 있는지 확인하는 예제 코드
+import sys
+
+assert sys.version_info >= (3, 10), "Python 3.10+ is required."
+print("Python version is okay.")
+
 import asyncio
 import json
+import logging
 import re
+import sys
 import time
-from typing import List, Optional, Union, Dict, Any
+from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
+from typing import List, Optional, Dict, Any
+from urllib.parse import unquote
+
+import duckdb
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from contextlib import asynccontextmanager
-from urllib.parse import unquote
-import duckdb
-import logging
 
-logger = logging.getLogger(__name__)
+# 로그 파일 경로 설정
+log_file_path = 'D:/zeta/logs/async_lite_gms.log'
+
+# 로거 설정
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+# 파일 핸들러 설정 (10MB 크기 제한, 최대 5개 파일 유지)
+file_handler = RotatingFileHandler(log_file_path, maxBytes=10 * 1024 * 1024, backupCount=5)
+file_handler.setLevel(logging.DEBUG)
+
+# 콘솔 핸들러 설정
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+
+# 포맷터 설정
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# 핸들러를 로거에 추가
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+# 기존 FastAPI 로거 설정 변경
+logging.getLogger("uvicorn").handlers = []
+logging.getLogger("uvicorn.access").handlers = []
+
 # 비동기 큐 및 이벤트 생성
 queue = asyncio.Queue()
 processing_event = asyncio.Event()
 
 # DuckDB 연결을 전역 변수로 선언
 conn = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,13 +81,16 @@ async def lifespan(app: FastAPI):
     if conn:
         conn.close()
 
+
 app = FastAPI(lifespan=lifespan)
+
 
 class AspectModel(BaseModel):
     urn: str
     aspect: str
     metadata: Dict[str, Any]
     systemMetadata: Optional[Dict[str, Any]] = None
+
 
 async def process_queue():
     global conn
@@ -76,6 +116,7 @@ async def process_queue():
             processing_event.set()
         await asyncio.sleep(0.1)
 
+
 @app.get("/config")
 async def get_config():
     return {
@@ -89,8 +130,10 @@ async def get_config():
         "retention": "true"
     }
 
+
 def decapitalize(name):
     return name[0].lower() + name[1:] if name else ''
+
 
 def extract_dataset_key(urn):
     # URN 형식: urn:li:dataset:(urn:li:dataPlatform:platform,name,origin)
@@ -103,6 +146,7 @@ def extract_dataset_key(urn):
             "origin": origin
         }
     return None
+
 
 @app.post("/entities")
 async def ingest_entity(request: Request, action: str = Query(...)):
@@ -149,6 +193,7 @@ async def ingest_entity(request: Request, action: str = Query(...)):
 
     return {"status": "queued"}
 
+
 def process_special_aspect(aspect_value):
     if isinstance(aspect_value, dict) and 'value' in aspect_value:
         try:
@@ -158,6 +203,7 @@ def process_special_aspect(aspect_value):
             # If parsing fails, return the original value
             return aspect_value['value']
     return aspect_value
+
 
 @app.post("/aspects")
 async def ingest_aspect(request: Request, action: str = Query(...)):
@@ -195,6 +241,7 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
 
     return {"status": "queued", "count": len(proposals)}
 
+
 @app.get("/aspects/{encoded_urn}")
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
     global conn
@@ -218,6 +265,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         },
         "systemMetadata": json.loads(result[1]) if result[1] else None
     }
+
 
 @app.post("/usageStats")
 async def ingest_usage_stats(request: Request, action: str = Query(...)):
@@ -243,35 +291,177 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
 
     return {"status": "queued", "count": len(buckets)}
 
+
+# Assuming these are imported from datahub.api.graphql.base
+from enum import Enum
+
+
+class EntityType(Enum):
+    DATASET = "DATASET"
+    # Add other entity types as needed
+
+
+# Assuming these are imported from datahub.api.graphql.operation
+class AndFilterInput:
+    def __init__(self, field: str, values: Optional[List[str]] = None, value: Optional[str] = None,
+                 condition: str = 'EQUAL', negated: bool = False):
+        self.field = field
+        self.values = values or []
+        if value is not None:
+            self.values.append(value)
+        self.condition = condition
+        self.negated = negated
+
+
+class OrFilterInput:
+    def __init__(self, and_filters: List[AndFilterInput]):
+        self.and_filters = and_filters
+
+
+class ScrollAcrossEntitiesInput:
+    def __init__(
+            self,
+            query: str,
+            types: List[EntityType],
+            orFilters: List[OrFilterInput],
+            count: int,
+            scrollId: Optional[str] = None,
+    ):
+        self.query = query
+        self.types = types
+        self.orFilters = orFilters
+        self.count = count
+        self.scrollId = scrollId
+
+
+def build_where_clause(or_filters: List[OrFilterInput]) -> tuple:
+    where_clauses = []
+    params = []
+    for or_filter in or_filters:
+        and_clauses = []
+        for and_filter in or_filter.and_filters:
+            if and_filter.field == 'platform.keyword':
+                and_clauses.append("urn LIKE ?")
+                params.append(f"{and_filter.values[0]}:%")
+            elif and_filter.field == 'removed':
+                if and_filter.negated:
+                    and_clauses.append("urn NOT LIKE ?")
+                else:
+                    and_clauses.append("urn LIKE ?")
+                params.append("%:DELETED")
+            elif and_filter.field == 'customProperties':
+                and_clauses.append("metadata LIKE ?")
+                params.append(f"%{and_filter.values[0]}%")
+            elif and_filter.field == 'origin':
+                and_clauses.append("metadata LIKE ?")
+                params.append(f"%\"origin\":\"{and_filter.values[0]}\"%")
+            # Add more conditions as needed
+        if and_clauses:
+            where_clauses.append(f"({' AND '.join(and_clauses)})")
+
+    final_where = " OR ".join(where_clauses) if where_clauses else "1=1"
+    return final_where, params
+
+
+# Update the graphql_endpoint function
 @app.post("/api/graphql")
 async def graphql_endpoint(request: Request):
     try:
         data = await request.json()
         query = data.get('query')
-        variables = data.get('variables')
+        variables = data.get('variables', {})
 
-        # 여기서 GraphQL 쿼리를 파싱하고 해당하는 DuckDB 쿼리로 변환해야 합니다.
-        # 이 예제에서는 간단한 구현만 제공합니다.
-        if "dataset" in query:
-            urn = variables.get('urn')
-            result = conn.execute('''
-                SELECT * FROM metadata_aspect_v2
-                WHERE urn = ?
-            ''', [urn]).fetchall()
-            return JSONResponse(content={"data": {"dataset": result}})
-        elif "search" in query:
-            input_string = variables.get('input')
-            result = conn.execute('''
-                SELECT DISTINCT urn FROM metadata_aspect_v2
-                WHERE urn LIKE ?
-            ''', [f'%{input_string}%']).fetchall()
-            return JSONResponse(content={"data": {"search": {"entities": result}}})
+        logger.info(f"Received GraphQL query: {query}")
+        logger.info(f"Variables: {variables}")
+
+        if "scrollAcrossEntities" in query:
+            or_filters = [
+                OrFilterInput([
+                    AndFilterInput(**filter_input)
+                    for filter_input in or_filter.get('and', [])
+                ])
+                for or_filter in variables.get('orFilters', [])
+            ]
+
+            input_data = ScrollAcrossEntitiesInput(
+                query=variables.get('query', '*'),
+                types=variables.get('types', []),
+                orFilters=or_filters,
+                count=variables.get('batchSize', 100),
+                scrollId=variables.get('scrollId')
+            )
+
+            where_clause, params = build_where_clause(input_data.orFilters)
+
+            query = f"""
+                SELECT DISTINCT urn, aspect, metadata
+                FROM metadata_aspect_v2
+                WHERE {where_clause}
+                LIMIT ? OFFSET ?
+            """
+
+            start = int(input_data.scrollId) if input_data.scrollId else 0
+            result = conn.execute(query, params + [input_data.count, start]).fetchall()
+
+            search_results = []
+            for row in result:
+                urn, aspect, metadata = row
+                entity = {
+                    "urn": urn,
+                    "type": urn.split(':')[2],
+                }
+                if aspect == 'schemaMetadata':
+                    schema_metadata = json.loads(metadata)
+                    fields = schema_metadata.get('fields', [])
+                    entity['schemaMetadata'] = {
+                        "fields": [
+                            {
+                                "fieldPath": field.get('fieldPath'),
+                                "nativeDataType": field.get('nativeDataType')
+                            } for field in fields
+                        ]
+                    }
+                search_results.append({"entity": entity})
+
+            total = \
+            conn.execute(f"SELECT COUNT(DISTINCT urn) FROM metadata_aspect_v2 WHERE {where_clause}", params).fetchone()[
+                0]
+
+            logger.info(f"Found {len(search_results)} entities")
+
+            next_start = start + len(search_results)
+            has_next_page = next_start < total
+
+            response = {
+                "data": {
+                    "scrollAcrossEntities": {
+                        "nextScrollId": str(next_start) if has_next_page else None,
+                        "searchResults": search_results,
+                        "start": start,
+                        "count": len(search_results),
+                        "total": total,
+                        "pageInfo": {
+                            "startCursor": str(start),
+                            "endCursor": str(next_start - 1),
+                            "hasNextPage": has_next_page
+                        }
+                    }
+                }
+            }
+
+            logger.info(f"Sending response: {json.dumps(response, indent=2)}")
+
+            return JSONResponse(content=response)
         else:
+            logger.warning("Unsupported GraphQL query received")
             return JSONResponse(content={"errors": ["Unsupported query"]}, status_code=400)
+
     except Exception as e:
-        logger.error(f"Error in GraphQL query execution: {str(e)}")
+        logger.error(f"Error occurred during GraphQL query execution: {str(e)}")
         return JSONResponse(content={"errors": [str(e)]}, status_code=500)
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
