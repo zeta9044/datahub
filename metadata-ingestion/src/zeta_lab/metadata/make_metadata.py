@@ -13,7 +13,19 @@ from datahub.metadata.schema_classes import (
     SchemaFieldClass,
     AuditStampClass,
     MySqlDDLClass,
-    SystemMetadataClass
+    SystemMetadataClass,
+    SchemaFieldDataTypeClass,
+    NumberTypeClass,
+    StringTypeClass,
+    TimeTypeClass,
+    BooleanTypeClass,
+    BytesTypeClass,
+    NullTypeClass,
+    EnumTypeClass,
+    ArrayTypeClass,
+    MapTypeClass,
+    UnionTypeClass,
+    RecordTypeClass
 )
 from zeta_lab.utilities.tool import log_execution_time, infer_type_from_native
 
@@ -171,7 +183,7 @@ def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
             # 10000개씩 나누어 벌크 삽입
             chunk_size = 10000
             for i in range(0, len(rows), chunk_size):
-                chunk = rows[i:i+chunk_size]
+                chunk = rows[i:i + chunk_size]
                 conn.executemany(insert_query, chunk)
 
             # 트랜잭션 커밋
@@ -191,6 +203,7 @@ def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
     finally:
         if 'conn' in locals():
             conn.close()
+
 
 def drop_metadata_origin_table(conn):
     try:
@@ -285,75 +298,125 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
 
         if not df.empty:
             grouped = df.groupby('schema_name')
-            metadata_list = []
 
-            for schema_name, group in grouped:
-                first_row = group.iloc[0]
-                dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name)
+            if json_output_path:
+                metadata_change_proposals = []
+                for schema_name, group in grouped:
+                    first_row = group.iloc[0]
+                    dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name)
 
-                schema_fields = [
-                    SchemaFieldClass(
-                        fieldPath=row['field_path'],
-                        type=infer_type_from_native(row['native_data_type']),
-                        nativeDataType=row['native_data_type'],
-                        nullable=True,
-                        recursive=False,
-                        isPartOfKey=False
-                    ) for _, row in group.iterrows()
-                ]
-
-                group_string = group.to_json(orient='records')
-                hash_md5 = hashlib.md5(group_string.encode('utf-8')).hexdigest()
-
-                current_time_millis = int(time.time() * 1000)
-                created_on = current_time_millis
-
-                schema_metadata = SchemaMetadataClass(
-                    schemaName=schema_name,
-                    platform=builder.make_data_platform_urn(first_row['platform']),
-                    version=0,
-                    hash=hash_md5,
-                    platformSchema=MySqlDDLClass(tableSchema=""),
-                    fields=schema_fields,
-                    lastModified=AuditStampClass(time=current_time_millis, actor="urn:li:corpuser:qtrack")
-                )
-
-                custom_properties = {
-                    'tgt_srv_id': first_row['tgt_srv_id'],
-                    'owner_srv_id': first_row['owner_srv_id'],
-                    'system_id': first_row['system_id'],
-                    'system_name': first_row['system_name'],
-                    'biz_id': first_row['biz_id'],
-                    'biz_name': first_row['biz_name'],
-                    'system_biz_id': first_row['system_biz_id']
-                }
-
-                dataset_properties = DatasetPropertiesClass(
-                    customProperties=custom_properties,
-                    name=schema_name,
-                    description=""
-                )
-
-                system_metadata = SystemMetadataClass(
-                    lastObserved=current_time_millis,
-                    runId=__name__
-                )
-
-                metadata_record = {
-                    "urn": dataset_urn,
-                    "aspects": [
-                        {
-                            "com.linkedin.schema.SchemaMetadata": schema_metadata.to_obj()
+                    # SchemaMetadata aspect 생성
+                    schema_metadata = {
+                        "entityType": "dataset",
+                        "entityUrn": dataset_urn,
+                        "aspectName": "schemaMetadata",
+                        "aspect": {
+                            "version": 0,
+                            "schemaName": schema_name,
+                            "platform": builder.make_data_platform_urn(first_row['platform']),
+                            "fields": [
+                                {
+                                    "fieldPath": row['field_path'],
+                                    "nativeDataType": row['native_data_type'],
+                                    "type": {
+                                        "type": {
+                                            f"com.linkedin.schema.{type(infer_type_from_native(row['native_data_type']).type).__name__}": {}
+                                        }
+                                    },
+                                    "nullable": True,
+                                    "recursive": False,
+                                    "isPartOfKey": False
+                                } for _, row in group.iterrows()
+                            ],
+                            "platformSchema": {
+                                "com.linkedin.schema.MySqlDDL": {
+                                    "tableSchema": ""
+                                }
+                            }
                         },
-                        {
-                            "com.linkedin.common.DatasetProperties": dataset_properties.to_obj()
-                        }
-                    ]
-                }
+                        "changeType": "UPSERT"
+                    }
+                    metadata_change_proposals.append(schema_metadata)
 
-                if json_output_path:
-                    metadata_list.append(metadata_record)
-                else:
+                    # DatasetProperties aspect 생성
+                    dataset_properties = {
+                        "entityType": "dataset",
+                        "entityUrn": dataset_urn,
+                        "aspectName": "datasetProperties",
+                        "aspect": {
+                            "description": "",
+                            "name": schema_name,
+                            "customProperties": {
+                                "tgt_srv_id": first_row['tgt_srv_id'],
+                                "owner_srv_id": first_row['owner_srv_id'],
+                                "system_id": first_row['system_id'],
+                                "system_name": first_row['system_name'],
+                                "biz_id": first_row['biz_id'],
+                                "biz_name": first_row['biz_name'],
+                                "system_biz_id": first_row['system_biz_id']
+                            }
+                        },
+                        "changeType": "UPSERT"
+                    }
+                    metadata_change_proposals.append(dataset_properties)
+
+                # JSON 파일로 저장
+                with open(json_output_path, 'w') as f:
+                    json.dump(metadata_change_proposals, f, indent=2)
+                logger.info(f"Metadata JSON file created at {json_output_path}")
+            else:
+                for schema_name, group in grouped:
+                    first_row = group.iloc[0]
+                    dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name)
+
+                    schema_fields = [
+                        SchemaFieldClass(
+                            fieldPath=row['field_path'],
+                            type=infer_type_from_native(row['native_data_type']),
+                            nativeDataType=row['native_data_type'],
+                            nullable=True,
+                            recursive=False,
+                            isPartOfKey=False
+                        ) for _, row in group.iterrows()
+                    ]
+
+                    group_string = group.to_json(orient='records')
+                    hash_md5 = hashlib.md5(group_string.encode('utf-8')).hexdigest()
+
+                    current_time_millis = int(time.time() * 1000)
+                    created_on = current_time_millis
+
+                    schema_metadata = SchemaMetadataClass(
+                        schemaName=schema_name,
+                        platform=builder.make_data_platform_urn(first_row['platform']),
+                        version=0,
+                        hash=hash_md5,
+                        platformSchema=MySqlDDLClass(tableSchema=""),
+                        fields=schema_fields,
+                        lastModified=AuditStampClass(time=current_time_millis, actor="urn:li:corpuser:qtrack")
+                    )
+
+                    custom_properties = {
+                        'tgt_srv_id': first_row['tgt_srv_id'],
+                        'owner_srv_id': first_row['owner_srv_id'],
+                        'system_id': first_row['system_id'],
+                        'system_name': first_row['system_name'],
+                        'biz_id': first_row['biz_id'],
+                        'biz_name': first_row['biz_name'],
+                        'system_biz_id': first_row['system_biz_id']
+                    }
+
+                    dataset_properties = DatasetPropertiesClass(
+                        customProperties=custom_properties,
+                        name=schema_name,
+                        description=""
+                    )
+
+                    system_metadata = SystemMetadataClass(
+                        lastObserved=current_time_millis,
+                        runId=__name__
+                    )
+
                     schema_metadata_json = json.dumps(schema_metadata.to_obj())
                     dataset_properties_json = json.dumps(dataset_properties.to_obj())
                     system_metadata_json = json.dumps(system_metadata.to_obj())
@@ -394,11 +457,6 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
                         first_row['system_biz_id']
                     ))
 
-            if json_output_path:
-                with open(json_output_path, 'w') as f:
-                    json.dump(metadata_list, f, indent=2)
-                logger.info(f"Metadata JSON file created at {json_output_path}")
-            else:
                 logger.info(f"Inserted or updated metadata for {len(grouped)} tables into main.metadata_aspect_v2")
                 conn.commit()
         else:
@@ -412,10 +470,12 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
         if 'conn' in locals():
             conn.close()
 
+
 @click.command()
 @click.option('--pg-dsn', required=True, help='PostgreSQL connection string')
 @click.option('--duckdb-path', default='metadata.db', help='Path to DuckDB file')
-@click.option('--json-output', default='metadata.json', help='Path to output JSON file (if not provided, data will be inserted into DuckDB)')
+@click.option('--json-output', default='metadata.json',
+              help='Path to output JSON file (if not provided, data will be inserted into DuckDB)')
 def main(pg_dsn, duckdb_path, json_output):
     logger.info("Starting metadata processing")
 
@@ -449,6 +509,7 @@ def main(pg_dsn, duckdb_path, json_output):
         logger.error(f"An error occurred during the process: {e}")
     finally:
         logger.info("Metadata processing finished")
+
 
 if __name__ == '__main__':
     main()

@@ -81,7 +81,7 @@ metadata_file_pipeline_config = {
     "source": {
         "type": "file",
         "config": {
-            "path": "/mnt/d/zeta/metadata_test.json",
+            "path": "\\\wsl.localhost\\Ubuntu\\home\\zeta\\ingest\\metadata.json",
             "file_extension": ".json",
             "read_mode": "AUTO"
         }
