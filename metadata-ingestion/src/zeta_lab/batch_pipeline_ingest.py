@@ -1,3 +1,5 @@
+import os
+
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
@@ -75,10 +77,23 @@ queries_pipeline_debug_config = {
     }
 }
 
+metadata_file_pipeline_config = {
+    "source": {
+        "type": "file",
+        "config": {
+            "path": "/mnt/d/zeta/metadata_test.json",
+            "file_extension": ".json",
+            "read_mode": "AUTO"
+        }
+    },
+    "sink": common_sink_config
+}
+
+
 # Define a list of pipeline configurations
 # pipeline_configs = [postgres_pipeline_config, queries_pipeline_config]
-pipeline_configs = [queries_pipeline_debug_config]
-
+# pipeline_configs = [queries_pipeline_debug_config]
+pipeline_configs = [metadata_file_pipeline_config]
 
 # Extract function to run pipeline
 def run_pipeline(config):
