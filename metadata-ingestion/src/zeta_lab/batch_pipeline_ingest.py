@@ -77,23 +77,51 @@ queries_pipeline_debug_config = {
     }
 }
 
-metadata_file_pipeline_config = {
+custom_queries_pipeline_debug_config = {
+    "datahub_api": {
+        "server": DATAHUB_URL,
+        "timeout_sec": 60
+    },
     "source": {
-        "type": "file",
+        "type": "custom-sql-queries",
         "config": {
-            "path": "\\\wsl.localhost\\Ubuntu\\home\\zeta\\ingest\\metadata.json",
-            "file_extension": ".json",
-            "read_mode": "AUTO"
+            "query_file": "D:/zeta/ingest/queries.json",
+            "platform": "postgres",
+            "platform_instance": "zeta",
+            "default_db": "postgres",
+            "default_schema": "dlusr",
+            "env": "PROD",
+            "usage": {
+                "format_sql_queries": "True"
+            }
         }
     },
-    "sink": common_sink_config
+    "sink": {
+        "type": "file",
+        "config": {
+            "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+        }
+    }
 }
+
+# metadata_file_pipeline_config = {
+#     "source": {
+#         "type": "file",
+#         "config": {
+#             "path": "\\\wsl.localhost\\Ubuntu\\home\\zeta\\ingest\\metadata.json",
+#             "file_extension": ".json",
+#             "read_mode": "AUTO"
+#         }
+#     },
+#     "sink": common_sink_config
+# }
 
 
 # Define a list of pipeline configurations
 # pipeline_configs = [postgres_pipeline_config, queries_pipeline_config]
 # pipeline_configs = [queries_pipeline_debug_config]
-pipeline_configs = [metadata_file_pipeline_config]
+pipeline_configs = [custom_queries_pipeline_debug_config]
+# pipeline_configs = [metadata_file_pipeline_config]
 
 # Extract function to run pipeline
 def run_pipeline(config):
