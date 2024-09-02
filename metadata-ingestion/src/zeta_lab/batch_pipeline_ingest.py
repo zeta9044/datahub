@@ -1,8 +1,4 @@
-import os
 from zeta_lab.source.custom_sql_queries import CustomSqlQueriesSource  # Ensure this import is done before creating the pipeline
-# Register the custom source
-# from datahub.ingestion.source.source_registry import source_registry
-# source_registry.register("custom-sql-queries", CustomSqlQueriesSource)
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
@@ -17,68 +13,68 @@ common_sink_config = {
 }
 
 # Define your ingestion configuration for Postgres
-postgres_pipeline_config = {
-    "source": {
-        "type": "postgres",
-        "config": {
-            "platform_instance": "zeta",
-            "host_port": "zeta:5432",
-            "database": "postgres",
-            "username": "dlusr",
-            "password": "dlusr",
-            "schema_pattern": {
-                "allow": ["dlusr.*", "admin.*"],
-            }
-        }
-    },
-    "sink": common_sink_config
-}
+# postgres_pipeline_config = {
+#     "source": {
+#         "type": "postgres",
+#         "config": {
+#             "platform_instance": "zeta",
+#             "host_port": "zeta:5432",
+#             "database": "postgres",
+#             "username": "dlusr",
+#             "password": "dlusr",
+#             "schema_pattern": {
+#                 "allow": ["dlusr.*", "admin.*"],
+#             }
+#         }
+#     },
+#     "sink": common_sink_config
+# }
 
 # Define your ingestion configuration for SQL queries
-queries_pipeline_config = {
-    "source": {
-        "type": "sql-queries",
-        "config": {
-            "query_file": "D:/zeta/ingest/queries.json",
-            "platform": "postgres",
-            "platform_instance": "zeta",
-            "default_db": "postgres",
-            "default_schema": "dlusr",
-            "env": "PROD",
-            "usage": {
-                "format_sql_queries": "True"
-            }
-        }
-    },
-    "sink": common_sink_config
-}
+# queries_pipeline_config = {
+#     "source": {
+#         "type": "sql-queries",
+#         "config": {
+#             "query_file": "D:/zeta/ingest/queries.json",
+#             "platform": "postgres",
+#             "platform_instance": "zeta",
+#             "default_db": "postgres",
+#             "default_schema": "dlusr",
+#             "env": "PROD",
+#             "usage": {
+#                 "format_sql_queries": "True"
+#             }
+#         }
+#     },
+#     "sink": common_sink_config
+# }
 
-queries_pipeline_debug_config = {
-    "datahub_api": {
-      "server": DATAHUB_URL,
-      "timeout_sec": 60
-    },
-    "source": {
-        "type": "sql-queries",
-        "config": {
-            "query_file": "D:/zeta/ingest/queries.json",
-            "platform": "postgres",
-            "platform_instance": "zeta",
-            "default_db": "postgres",
-            "default_schema": "dlusr",
-            "env": "PROD",
-            "usage": {
-                "format_sql_queries": "True"
-            }
-        }
-    },
-    "sink": {
-        "type": "file",
-        "config": {
-            "filename": "D:/zeta/logs/queries_ingestion.log"
-        }
-    }
-}
+# queries_pipeline_debug_config = {
+#     "datahub_api": {
+#       "server": DATAHUB_URL,
+#       "timeout_sec": 60
+#     },
+#     "source": {
+#         "type": "sql-queries",
+#         "config": {
+#             "query_file": "D:/zeta/ingest/test.json",
+#             "platform": "snowflake",
+#             "platform_instance": "na",
+#             "default_db": "na",
+#             "default_schema": "na",
+#             "env": "PROD",
+#             "usage": {
+#                 "format_sql_queries": "True"
+#             }
+#         }
+#     },
+#     "sink": {
+#         "type": "file",
+#         "config": {
+#             "filename": "D:/zeta/logs/queries_ingestion.log"
+#         }
+#     }
+# }
 
 custom_queries_pipeline_debug_config = {
     "datahub_api": {
@@ -87,24 +83,24 @@ custom_queries_pipeline_debug_config = {
     },
     "source": {
         "type": "custom-sql-queries",
-        "config": {
-            "query_file": "/home/zeta/ingest/queries.json",
-            "platform": "postgres",
-            "platform_instance": "zeta",
-            "default_db": "postgres",
-            "default_schema": "dlusr",
-            "env": "PROD",
-            "usage": {
-                "format_sql_queries": "True"
+                "config": {
+                    "query_file": "D:/zeta/ingest/test.json",
+                    "platform": "snowflake",
+                    "platform_instance": "na",
+                    "default_db": "na",
+                    "default_schema": "na",
+                    "env": "PROD",
+                    "usage": {
+                        "format_sql_queries": "True"
+                    }
+                }
+            },
+            "sink": {
+                "type": "file",
+                "config": {
+                    "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+                }
             }
-        }
-    },
-    "sink": {
-        "type": "file",
-        "config": {
-            "filename": "/home/zeta/ingest/custom_queries_ingestion.log"
-        }
-    }
 }
 
 # metadata_file_pipeline_config = {

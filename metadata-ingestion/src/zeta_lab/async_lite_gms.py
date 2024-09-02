@@ -1,9 +1,3 @@
-# 확실히 Python 3.10을 사용하고 있는지 확인하는 예제 코드
-import sys
-
-assert sys.version_info >= (3, 10), "Python 3.10+ is required."
-print("Python version is okay.")
-
 import asyncio
 import json
 import logging
@@ -20,49 +14,41 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# 로그 파일 경로 설정
-log_file_path = 'D:/zeta/logs/async_lite_gms.log'
+# Ensure Python 3.10+ is being used
+assert sys.version_info >= (3, 10), "Python 3.10+ is required."
 
-# 로거 설정
+# Logging setup
+log_file_path = 'D:/zeta/logs/async_lite_gms.log'
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-# 파일 핸들러 설정 (10MB 크기 제한, 최대 5개 파일 유지)
-file_handler = RotatingFileHandler(log_file_path, maxBytes=10 * 1024 * 1024, backupCount=5)
+file_handler = RotatingFileHandler(log_file_path, maxBytes=10*1024*1024, backupCount=5)
 file_handler.setLevel(logging.DEBUG)
 
-# 콘솔 핸들러 설정
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 
-# 포맷터 설정
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 console_handler.setFormatter(formatter)
 
-# 핸들러를 로거에 추가
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-# 기존 FastAPI 로거 설정 변경
 logging.getLogger("uvicorn").handlers = []
 logging.getLogger("uvicorn.access").handlers = []
 
-# 비동기 큐 및 이벤트 생성
+# Async queue and event
 queue = asyncio.Queue()
 processing_event = asyncio.Event()
 
-# DuckDB 연결을 전역 변수로 선언
+# Global DuckDB connection
 conn = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     global conn
     conn = duckdb.connect('D:/zeta/ingest/datahub.db')
-
-    # 테이블 생성
     conn.execute('''
         CREATE TABLE IF NOT EXISTS metadata_aspect_v2 (
             urn VARCHAR,
@@ -74,16 +60,12 @@ async def lifespan(app: FastAPI):
             PRIMARY KEY (urn, aspect, version)
         )
     ''')
-
     asyncio.create_task(process_queue())
     yield
-    # Shutdown
     if conn:
         conn.close()
 
-
 app = FastAPI(lifespan=lifespan)
-
 
 class AspectModel(BaseModel):
     urn: str
@@ -91,13 +73,40 @@ class AspectModel(BaseModel):
     metadata: Dict[str, Any]
     systemMetadata: Optional[Dict[str, Any]] = None
 
+class AndFilterInput:
+    def __init__(self, field: str, values: Optional[List[str]] = None, value: Optional[str] = None, condition: str = 'EQUAL', negated: bool = False):
+        self.field = field
+        self.values = values or []
+        if value is not None:
+            self.values.append(value)
+        self.condition = condition
+        self.negated = negated
+
+class OrFilterInput:
+    def __init__(self, and_filters: List[AndFilterInput]):
+        self.and_filters = and_filters
+
+class ScrollAcrossEntitiesInput:
+    def __init__(
+            self,
+            query: str,
+            types: List[str],
+            orFilters: List[OrFilterInput],
+            count: int,
+            scrollId: Optional[str] = None,
+    ):
+        self.query = query
+        self.types = types
+        self.orFilters = orFilters
+        self.count = count
+        self.scrollId = scrollId
 
 async def process_queue():
     global conn
     while True:
         batch = []
         try:
-            while len(batch) < 1000:  # 최대 배치 크기
+            while len(batch) < 1000:
                 item = await asyncio.wait_for(queue.get(), timeout=1.0)
                 batch.append(item)
         except asyncio.TimeoutError:
@@ -110,12 +119,80 @@ async def process_queue():
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', batch)
             except Exception as e:
-                print(f"Error processing batch: {e}")
+                logger.error(f"Error processing batch: {e}")
 
         if queue.empty():
             processing_event.set()
         await asyncio.sleep(0.1)
 
+def decapitalize(name):
+    return name[0].lower() + name[1:] if name else ''
+
+def extract_dataset_key(urn):
+    match = re.match(r'urn:li:dataset:\(urn:li:dataPlatform:(\w+),(.*),(\w+)\)', urn)
+    if match:
+        platform, name, origin = match.groups()
+        return {
+            "name": name,
+            "platform": f"urn:li:dataPlatform:{platform}",
+            "origin": origin
+        }
+    return None
+
+def process_special_aspect(aspect_value):
+    if isinstance(aspect_value, dict) and 'value' in aspect_value:
+        try:
+            return json.loads(aspect_value['value'])
+        except json.JSONDecodeError:
+            return aspect_value['value']
+    return aspect_value
+
+def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
+    try:
+        data = json.loads(metadata)
+        if aspect == 'schemaMetadata':
+            return {
+                "fields": [
+                    {
+                        "fieldPath": field.get('fieldPath'),
+                        "nativeDataType": field.get('nativeDataType')
+                    } for field in data.get('fields', [])
+                ]
+            }
+        elif aspect in ['datasetProperties', 'datasetKey']:
+            return data
+        else:
+            return data
+    except json.JSONDecodeError:
+        logger.error(f"Error decoding JSON for aspect {aspect}")
+        return {}
+
+def build_where_clause(or_filters: List[OrFilterInput]) -> tuple:
+    where_clauses = []
+    params = []
+    for or_filter in or_filters:
+        and_clauses = []
+        for and_filter in or_filter.and_filters:
+            if and_filter.field == 'platform.keyword':
+                and_clauses.append("urn LIKE ?")
+                params.append(f"{and_filter.values[0]}:%")
+            elif and_filter.field == 'removed':
+                if and_filter.negated:
+                    and_clauses.append("urn NOT LIKE ?")
+                else:
+                    and_clauses.append("urn LIKE ?")
+                params.append("%:DELETED")
+            elif and_filter.field == 'customProperties':
+                and_clauses.append("metadata LIKE ?")
+                params.append(f"%{and_filter.values[0]}%")
+            elif and_filter.field == 'origin':
+                and_clauses.append("metadata LIKE ?")
+                params.append(f"%\"origin\":\"{and_filter.values[0]}\"%")
+        if and_clauses:
+            where_clauses.append(f"({' AND '.join(and_clauses)})")
+
+    final_where = " OR ".join(where_clauses) if where_clauses else "1=1"
+    return final_where, params
 
 @app.get("/config")
 async def get_config():
@@ -129,24 +206,6 @@ async def get_config():
         "statefulIngestionCapable": True,
         "retention": "true"
     }
-
-
-def decapitalize(name):
-    return name[0].lower() + name[1:] if name else ''
-
-
-def extract_dataset_key(urn):
-    # URN 형식: urn:li:dataset:(urn:li:dataPlatform:platform,name,origin)
-    match = re.match(r'urn:li:dataset:\(urn:li:dataPlatform:(\w+),(.*),(\w+)\)', urn)
-    if match:
-        platform, name, origin = match.groups()
-        return {
-            "name": name,
-            "platform": f"urn:li:dataPlatform:{platform}",
-            "origin": origin
-        }
-    return None
-
 
 @app.post("/entities")
 async def ingest_entity(request: Request, action: str = Query(...)):
@@ -165,9 +224,7 @@ async def ingest_entity(request: Request, action: str = Query(...)):
         aspects = snapshot_value.get("aspects", [])
         for aspect in aspects:
             for full_aspect_name, aspect_value in aspect.items():
-                # Extract the aspect name from the full name
                 aspect_name = full_aspect_name.split('.')[-1]
-                # Convert only the first letter to lowercase
                 aspect_name = decapitalize(aspect_name)
 
                 await queue.put((
@@ -179,7 +236,6 @@ async def ingest_entity(request: Request, action: str = Query(...)):
                     int(time.time() * 1000)
                 ))
 
-        # Generate and store datasetKey
         dataset_key = extract_dataset_key(urn)
         if dataset_key:
             await queue.put((
@@ -192,18 +248,6 @@ async def ingest_entity(request: Request, action: str = Query(...)):
             ))
 
     return {"status": "queued"}
-
-
-def process_special_aspect(aspect_value):
-    if isinstance(aspect_value, dict) and 'value' in aspect_value:
-        try:
-            # Parse the JSON string
-            return json.loads(aspect_value['value'])
-        except json.JSONDecodeError:
-            # If parsing fails, return the original value
-            return aspect_value['value']
-    return aspect_value
-
 
 @app.post("/aspects")
 async def ingest_aspect(request: Request, action: str = Query(...)):
@@ -226,8 +270,6 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
         if not urn or not aspect_name:
             raise HTTPException(status_code=400, detail="EntityUrn and aspectName are required")
 
-        # Process special aspects
-        # if aspect_name in ['dataPlatformInstance', 'subTypes', 'browsePathsV2', 'container']:
         aspect_value = process_special_aspect(aspect_value)
 
         await queue.put((
@@ -240,7 +282,6 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
         ))
 
     return {"status": "queued", "count": len(proposals)}
-
 
 @app.get("/aspects/{encoded_urn}")
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
@@ -266,7 +307,6 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         "systemMetadata": json.loads(result[1]) if result[1] else None
     }
 
-
 @app.post("/usageStats")
 async def ingest_usage_stats(request: Request, action: str = Query(...)):
     if action != "batchIngest":
@@ -291,79 +331,6 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
 
     return {"status": "queued", "count": len(buckets)}
 
-
-# Assuming these are imported from datahub.api.graphql.base
-from enum import Enum
-
-
-class EntityType(Enum):
-    DATASET = "DATASET"
-    # Add other entity types as needed
-
-
-# Assuming these are imported from datahub.api.graphql.operation
-class AndFilterInput:
-    def __init__(self, field: str, values: Optional[List[str]] = None, value: Optional[str] = None,
-                 condition: str = 'EQUAL', negated: bool = False):
-        self.field = field
-        self.values = values or []
-        if value is not None:
-            self.values.append(value)
-        self.condition = condition
-        self.negated = negated
-
-
-class OrFilterInput:
-    def __init__(self, and_filters: List[AndFilterInput]):
-        self.and_filters = and_filters
-
-
-class ScrollAcrossEntitiesInput:
-    def __init__(
-            self,
-            query: str,
-            types: List[EntityType],
-            orFilters: List[OrFilterInput],
-            count: int,
-            scrollId: Optional[str] = None,
-    ):
-        self.query = query
-        self.types = types
-        self.orFilters = orFilters
-        self.count = count
-        self.scrollId = scrollId
-
-
-def build_where_clause(or_filters: List[OrFilterInput]) -> tuple:
-    where_clauses = []
-    params = []
-    for or_filter in or_filters:
-        and_clauses = []
-        for and_filter in or_filter.and_filters:
-            if and_filter.field == 'platform.keyword':
-                and_clauses.append("urn LIKE ?")
-                params.append(f"{and_filter.values[0]}:%")
-            elif and_filter.field == 'removed':
-                if and_filter.negated:
-                    and_clauses.append("urn NOT LIKE ?")
-                else:
-                    and_clauses.append("urn LIKE ?")
-                params.append("%:DELETED")
-            elif and_filter.field == 'customProperties':
-                and_clauses.append("metadata LIKE ?")
-                params.append(f"%{and_filter.values[0]}%")
-            elif and_filter.field == 'origin':
-                and_clauses.append("metadata LIKE ?")
-                params.append(f"%\"origin\":\"{and_filter.values[0]}\"%")
-            # Add more conditions as needed
-        if and_clauses:
-            where_clauses.append(f"({' AND '.join(and_clauses)})")
-
-    final_where = " OR ".join(where_clauses) if where_clauses else "1=1"
-    return final_where, params
-
-
-# Update the graphql_endpoint function
 @app.post("/api/graphql")
 async def graphql_endpoint(request: Request):
     try:
@@ -410,22 +377,12 @@ async def graphql_endpoint(request: Request):
                     "urn": urn,
                     "type": urn.split(':')[2],
                 }
-                if aspect == 'schemaMetadata':
-                    schema_metadata = json.loads(metadata)
-                    fields = schema_metadata.get('fields', [])
-                    entity['schemaMetadata'] = {
-                        "fields": [
-                            {
-                                "fieldPath": field.get('fieldPath'),
-                                "nativeDataType": field.get('nativeDataType')
-                            } for field in fields
-                        ]
-                    }
+                processed_aspect = process_aspect(aspect, metadata)
+                if processed_aspect:
+                    entity[aspect] = processed_aspect
                 search_results.append({"entity": entity})
 
-            total = \
-            conn.execute(f"SELECT COUNT(DISTINCT urn) FROM metadata_aspect_v2 WHERE {where_clause}", params).fetchone()[
-                0]
+            total = conn.execute(f"SELECT COUNT(DISTINCT urn) FROM metadata_aspect_v2 WHERE {where_clause}", params).fetchone()[0]
 
             logger.info(f"Found {len(search_results)} entities")
 
@@ -460,8 +417,7 @@ async def graphql_endpoint(request: Request):
         logger.error(f"Error occurred during GraphQL query execution: {str(e)}")
         return JSONResponse(content={"errors": [str(e)]}, status_code=500)
 
-
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("Starting async_lite_gms server...")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
