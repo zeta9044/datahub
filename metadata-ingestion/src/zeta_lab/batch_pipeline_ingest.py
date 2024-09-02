@@ -1,5 +1,8 @@
 import os
-
+from zeta_lab.source.custom_sql_queries import CustomSqlQueriesSource  # Ensure this import is done before creating the pipeline
+# Register the custom source
+# from datahub.ingestion.source.source_registry import source_registry
+# source_registry.register("custom-sql-queries", CustomSqlQueriesSource)
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
@@ -85,7 +88,7 @@ custom_queries_pipeline_debug_config = {
     "source": {
         "type": "custom-sql-queries",
         "config": {
-            "query_file": "D:/zeta/ingest/queries.json",
+            "query_file": "/home/zeta/ingest/queries.json",
             "platform": "postgres",
             "platform_instance": "zeta",
             "default_db": "postgres",
@@ -99,7 +102,7 @@ custom_queries_pipeline_debug_config = {
     "sink": {
         "type": "file",
         "config": {
-            "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+            "filename": "/home/zeta/ingest/custom_queries_ingestion.log"
         }
     }
 }

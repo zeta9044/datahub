@@ -1,32 +1,86 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
-from pydantic import Field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Dict, Any, Optional, Iterable, List
 
-from datahub.emitter.mce_builder import make_user_urn, make_dataset_urn_with_platform_instance
+from pydantic import Field
+
+from datahub.emitter.mce_builder import make_dataset_urn_with_platform_instance, make_user_urn
+from datahub.emitter.sql_parsing_builder import SqlParsingBuilder
+from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.workunit import MetadataWorkUnit
-from datahub.sql_parsing.sqlglot_lineage import SqlParsingResult, sqlglot_lineage
-from datahub.ingestion.source.sql_queries import SqlQueriesSource, SqlQueriesSourceConfig
+from datahub.ingestion.graph.client import DataHubGraph
+from datahub.ingestion.source.sql_queries import SqlQueriesSource, SqlQueriesSourceConfig, QueryEntry as BaseQueryEntry, \
+    SqlQueriesSourceReport
 from datahub.metadata.com.linkedin.pegasus2avro.mxe import MetadataChangeEvent
 from datahub.metadata.com.linkedin.pegasus2avro.metadata.snapshot import DatasetSnapshot
 from datahub.metadata.schema_classes import SqlParsingResultClass
-from typing import Dict, Any, Optional, Iterable, List
-
+from datahub.sql_parsing.sqlglot_lineage import SqlParsingResult, sqlglot_lineage
 
 class CustomSqlParsingResult(SqlParsingResult):
     custom_keys: Optional[Dict[str, Any]] = None
 
-class CustomSqlQueriesSource(SqlQueriesSource):
-    def __init__(self, config: SqlQueriesSourceConfig, ctx):
-        super().__init__(config, ctx)
+@dataclass
+class CustomQueryEntry(BaseQueryEntry):
+    custom_keys: Dict[str, Any] = field(default_factory=dict)
 
-    def _process_query(self, entry: "QueryEntry") -> Iterable[MetadataWorkUnit]:
-        # 기존의 처리 로직을 유지
+    @classmethod
+    def create(cls, entry_dict: dict, *, config: SqlQueriesSourceConfig) -> "CustomQueryEntry":
+        base_entry = super().create(entry_dict, config=config)
+        return cls(
+            query=base_entry.query,
+            timestamp=base_entry.timestamp,
+            user=base_entry.user,
+            operation_type=base_entry.operation_type,
+            downstream_tables=base_entry.downstream_tables,
+            upstream_tables=base_entry.upstream_tables,
+            custom_keys=entry_dict.get("custom_keys", {})
+        )
+
+class CustomSqlQueriesSource(SqlQueriesSource):
+    def __init__(self, ctx: PipelineContext, config: SqlQueriesSourceConfig):
+        if not ctx.graph:
+            raise ValueError(
+                "SqlQueriesSource needs a datahub_api from which to pull schema metadata"
+            )
+
+        self.graph: DataHubGraph = ctx.graph
+        self.ctx = ctx
+        self.config = config
+        self.report = SqlQueriesSourceReport()
+
+        self.builder = SqlParsingBuilder(usage_config=self.config.usage)
+
+        if self.config.use_schema_resolver:
+            self.schema_resolver = self.graph.initialize_schema_resolver_from_datahub(
+                platform=self.config.platform,
+                platform_instance=self.config.platform_instance,
+                env=self.config.env,
+            )
+            self.urns = self.schema_resolver.get_urns()
+        else:
+            self.schema_resolver = self.graph._make_schema_resolver(
+                platform=self.config.platform,
+                platform_instance=self.config.platform_instance,
+                env=self.config.env,
+            )
+            self.urns = None
+
+    def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
+        with open(self.config.query_file) as f:
+            for line in f:
+                try:
+                    query_dict = json.loads(line, strict=False)
+                    entry = CustomQueryEntry.create(query_dict, config=self.config)
+                    yield from self._process_query(entry)
+                except Exception as e:
+                    self.report.report_warning("process-query", str(e))
+
+    def _process_query(self, entry: CustomQueryEntry) -> Iterable[MetadataWorkUnit]:
         yield from super()._process_query(entry)
 
-        # SqlParsingResult 생성
         result = sqlglot_lineage(
             sql=entry.query,
             schema_resolver=self.schema_resolver,
@@ -34,11 +88,9 @@ class CustomSqlQueriesSource(SqlQueriesSource):
             default_schema=self.config.default_schema,
         )
 
-        # CustomSqlParsingResult로 변환 및 custom_keys 추가
         custom_result = CustomSqlParsingResult(**result.dict())
         custom_result.custom_keys = entry.custom_keys
 
-        # sqlParseResult aspect 생성
         sql_parse_result_aspect = SqlParsingResultClass(
             query=custom_result.query,
             queryType=custom_result.query_type,
@@ -52,7 +104,6 @@ class CustomSqlQueriesSource(SqlQueriesSource):
 
         query_urn = f"urn:li:query:{custom_result.query_fingerprint}"
 
-        # 각 출력 테이블에 대해 새로운 MetadataChangeEvent 생성
         mce = MetadataChangeEvent(
             proposedSnapshot=DatasetSnapshot(
                 urn=query_urn,
@@ -61,51 +112,6 @@ class CustomSqlQueriesSource(SqlQueriesSource):
         )
         yield MetadataWorkUnit(id=query_urn, mce=mce)
 
-
-@dataclass
-class QueryEntry:
-    query: str
-    timestamp: Optional[datetime]
-    user: Optional[str]
-    operation_type: Optional[str]
-    downstream_tables: List[str]
-    upstream_tables: List[str]
-    custom_keys: Dict[str, Any] = Field(default_factory=dict)
-
-    @classmethod
-    def create(
-            cls, entry_dict: dict, *, config: SqlQueriesSourceConfig
-    ) -> "QueryEntry":
-        return cls(
-            query=entry_dict["query"],
-            timestamp=(
-                datetime.fromtimestamp(entry_dict["timestamp"], tz=timezone.utc)
-                if "timestamp" in entry_dict
-                else None
-            ),
-            user=make_user_urn(entry_dict["user"]) if "user" in entry_dict else None,
-            operation_type=entry_dict.get("operation_type"),
-            downstream_tables=[
-                make_dataset_urn_with_platform_instance(
-                    name=table,
-                    platform=config.platform,
-                    platform_instance=config.platform_instance,
-                    env=config.env,
-                )
-                for table in entry_dict.get("downstream_tables", [])
-            ],
-            upstream_tables=[
-                make_dataset_urn_with_platform_instance(
-                    name=table,
-                    platform=config.platform,
-                    platform_instance=config.platform_instance,
-                    env=config.env,
-                )
-                for table in entry_dict.get("upstream_tables", [])
-            ],
-            custom_keys=entry_dict.get("custom_keys", {})
-        )
-
 # Register the custom source
 from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("custom-sql-queries", SqlQueriesSource)
+source_registry.register("custom-sql-queries", CustomSqlQueriesSource)
