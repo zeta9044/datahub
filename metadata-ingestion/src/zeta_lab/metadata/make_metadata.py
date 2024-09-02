@@ -1,31 +1,20 @@
-import logging
-import click
-from sqlalchemy import create_engine, select, MetaData, Table, func, text
-import duckdb
-import time
 import hashlib
 import json
+import logging
+import time
 from typing import Optional
+
+import click
+import duckdb
+from sqlalchemy import create_engine, select, MetaData, Table, func, text
+
 import datahub.emitter.mce_builder as builder
-from datahub.metadata._schema_classes import DatasetPropertiesClass
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.metadata._schema_classes import MetadataChangeEventClass, DatasetSnapshotClass, DatasetPropertiesClass, \
+    SchemaMetadataClass, SchemaFieldClass, SchemaFieldDataTypeClass, AuditStampClass
 from datahub.metadata.schema_classes import (
-    SchemaMetadataClass,
-    SchemaFieldClass,
-    AuditStampClass,
-    MySqlDDLClass,
     SystemMetadataClass,
-    SchemaFieldDataTypeClass,
-    NumberTypeClass,
-    StringTypeClass,
-    TimeTypeClass,
-    BooleanTypeClass,
-    BytesTypeClass,
-    NullTypeClass,
-    EnumTypeClass,
-    ArrayTypeClass,
-    MapTypeClass,
-    UnionTypeClass,
-    RecordTypeClass
 )
 from zeta_lab.utilities.tool import log_execution_time, infer_type_from_native
 
@@ -269,13 +258,46 @@ def create_metadata_table(conn):
         raise
 
 
+
+def send_to_gms(metadata_change_proposals, gms_server):
+    emitter = DatahubRestEmitter(gms_server)
+    for proposal in metadata_change_proposals:
+        try:
+            aspect = proposal['aspect']
+
+            # Create MetadataChangeEventClass
+            mce = MetadataChangeEventClass(
+                proposedSnapshot=DatasetSnapshotClass(
+                    urn=proposal['entityUrn'],
+                    aspects=[aspect]
+                )
+            )
+
+            emitter.emit_mce(mce)
+            logger.info(f"Successfully sent proposal for {proposal['entityUrn']}")
+        except Exception as e:
+            logger.error(f"Failed to send proposal for {proposal['entityUrn']}: {e}")
+
+def create_schema_fields(group):
+    return [
+        SchemaFieldClass(
+            fieldPath=row['field_path'],
+            nativeDataType=row['native_data_type'],
+            type=SchemaFieldDataTypeClass(type=infer_type_from_native(row['native_data_type'])),
+            nullable=True,
+            recursive=False,
+            isPartOfKey=False
+        ) for _, row in group.iterrows()
+    ]
+
+
 @log_execution_time(log_file='execution_time.log')
-def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str] = None):
+def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str] = None, gms_server: Optional[str] = None):
     try:
         conn = duckdb.connect(database=duckdb_path, read_only=False)
 
         create_metadata_origin(conn)
-        if not json_output_path:
+        if not json_output_path and not gms_server:
             create_metadata_table(conn)
 
         query = """
@@ -299,162 +321,94 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
         if not df.empty:
             grouped = df.groupby('schema_name')
 
+            metadata_change_proposals = []
+            for schema_name, group in grouped:
+                first_row = group.iloc[0]
+                dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name, env="PROD")
+
+                # SchemaMetadata aspect 생성
+                fields = create_schema_fields(group)
+                schema_metadata_dict = {
+                    "schemaName": schema_name,
+                    "platform": builder.make_data_platform_urn(first_row['platform']),
+                    "version": 0,
+                    "fields": fields,
+                    "platformSchema": {
+                        "com.linkedin.schema.MySqlDDL": {
+                            "tableSchema": ""
+                        }
+                    },
+                    "hash": hashlib.md5(str(fields).encode()).hexdigest(),
+                    "lastModified": AuditStampClass(
+                        time=int(time.time() * 1000),
+                        actor="urn:li:corpuser:datahub",
+                    ),
+                }
+                schema_metadata = SchemaMetadataClass(**schema_metadata_dict)
+
+                metadata_change_proposals.append({
+                    "entityType": "dataset",
+                    "entityUrn": dataset_urn,
+                    "aspectName": "schemaMetadata",
+                    "aspect": schema_metadata
+                })
+
+                # DatasetProperties aspect 생성
+                dataset_properties = DatasetPropertiesClass(
+                    description="",
+                    name=schema_name,
+                    customProperties={
+                        "tgt_srv_id": first_row['tgt_srv_id'],
+                        "owner_srv_id": first_row['owner_srv_id'],
+                        "system_id": first_row['system_id'],
+                        "system_name": first_row['system_name'],
+                        "biz_id": first_row['biz_id'],
+                        "biz_name": first_row['biz_name'],
+                        "system_biz_id": first_row['system_biz_id']
+                    }
+                )
+
+                metadata_change_proposals.append({
+                    "entityType": "dataset",
+                    "entityUrn": dataset_urn,
+                    "aspectName": "datasetProperties",
+                    "aspect": dataset_properties
+                })
+
             if json_output_path:
-                metadata_change_proposals = []
-                for schema_name, group in grouped:
-                    first_row = group.iloc[0]
-                    dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name)
-
-                    # SchemaMetadata aspect 생성
-                    schema_metadata = {
-                        "entityType": "dataset",
-                        "entityUrn": dataset_urn,
-                        "aspectName": "schemaMetadata",
-                        "aspect": {
-                            "version": 0,
-                            "schemaName": schema_name,
-                            "platform": builder.make_data_platform_urn(first_row['platform']),
-                            "fields": [
-                                {
-                                    "fieldPath": row['field_path'],
-                                    "nativeDataType": row['native_data_type'],
-                                    "type": {
-                                        "type": {
-                                            f"com.linkedin.schema.{type(infer_type_from_native(row['native_data_type']).type).__name__}": {}
-                                        }
-                                    },
-                                    "nullable": True,
-                                    "recursive": False,
-                                    "isPartOfKey": False
-                                } for _, row in group.iterrows()
-                            ],
-                            "platformSchema": {
-                                "com.linkedin.schema.MySqlDDL": {
-                                    "tableSchema": ""
-                                }
-                            }
-                        },
-                        "changeType": "UPSERT"
-                    }
-                    metadata_change_proposals.append(schema_metadata)
-
-                    # DatasetProperties aspect 생성
-                    dataset_properties = {
-                        "entityType": "dataset",
-                        "entityUrn": dataset_urn,
-                        "aspectName": "datasetProperties",
-                        "aspect": {
-                            "description": "",
-                            "name": schema_name,
-                            "customProperties": {
-                                "tgt_srv_id": first_row['tgt_srv_id'],
-                                "owner_srv_id": first_row['owner_srv_id'],
-                                "system_id": first_row['system_id'],
-                                "system_name": first_row['system_name'],
-                                "biz_id": first_row['biz_id'],
-                                "biz_name": first_row['biz_name'],
-                                "system_biz_id": first_row['system_biz_id']
-                            }
-                        },
-                        "changeType": "UPSERT"
-                    }
-                    metadata_change_proposals.append(dataset_properties)
-
                 # JSON 파일로 저장
                 with open(json_output_path, 'w') as f:
-                    json.dump(metadata_change_proposals, f, indent=2)
+                    json.dump(metadata_change_proposals, f, indent=2, default=lambda x: x.to_obj())
                 logger.info(f"Metadata JSON file created at {json_output_path}")
+            elif gms_server:
+                # GMS 서버로 전송
+                send_to_gms(metadata_change_proposals, gms_server)
+                logger.info(f"Metadata sent to GMS server at {gms_server}")
             else:
-                for schema_name, group in grouped:
-                    first_row = group.iloc[0]
-                    dataset_urn = builder.make_dataset_urn(platform=first_row['platform'], name=schema_name)
-
-                    schema_fields = [
-                        SchemaFieldClass(
-                            fieldPath=row['field_path'],
-                            type=infer_type_from_native(row['native_data_type']),
-                            nativeDataType=row['native_data_type'],
-                            nullable=True,
-                            recursive=False,
-                            isPartOfKey=False
-                        ) for _, row in group.iterrows()
-                    ]
-
-                    group_string = group.to_json(orient='records')
-                    hash_md5 = hashlib.md5(group_string.encode('utf-8')).hexdigest()
+                # DuckDB에 저장
+                for proposal in metadata_change_proposals:
+                    dataset_urn = proposal['entityUrn']
+                    aspect_name = proposal['aspectName']
+                    metadata_json = json.dumps(proposal['aspect'])
 
                     current_time_millis = int(time.time() * 1000)
-                    created_on = current_time_millis
-
-                    schema_metadata = SchemaMetadataClass(
-                        schemaName=schema_name,
-                        platform=builder.make_data_platform_urn(first_row['platform']),
-                        version=0,
-                        hash=hash_md5,
-                        platformSchema=MySqlDDLClass(tableSchema=""),
-                        fields=schema_fields,
-                        lastModified=AuditStampClass(time=current_time_millis, actor="urn:li:corpuser:qtrack")
-                    )
-
-                    custom_properties = {
-                        'tgt_srv_id': first_row['tgt_srv_id'],
-                        'owner_srv_id': first_row['owner_srv_id'],
-                        'system_id': first_row['system_id'],
-                        'system_name': first_row['system_name'],
-                        'biz_id': first_row['biz_id'],
-                        'biz_name': first_row['biz_name'],
-                        'system_biz_id': first_row['system_biz_id']
-                    }
-
-                    dataset_properties = DatasetPropertiesClass(
-                        customProperties=custom_properties,
-                        name=schema_name,
-                        description=""
-                    )
-
                     system_metadata = SystemMetadataClass(
                         lastObserved=current_time_millis,
                         runId=__name__
                     )
-
-                    schema_metadata_json = json.dumps(schema_metadata.to_obj())
-                    dataset_properties_json = json.dumps(dataset_properties.to_obj())
                     system_metadata_json = json.dumps(system_metadata.to_obj())
 
                     insert_query = """
-                    INSERT INTO main.metadata_aspect_v2 (urn, aspect_name, "version", metadata, system_metadata, createdon, tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name, system_biz_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO main.metadata_aspect_v2 (urn, aspect_name, "version", metadata, system_metadata, createdon)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """
                     conn.execute(insert_query, (
                         dataset_urn,
-                        'schemaMetadata',
+                        aspect_name,
                         0,
-                        schema_metadata_json,
+                        metadata_json,
                         system_metadata_json,
-                        created_on,
-                        first_row['tgt_srv_id'],
-                        first_row['owner_srv_id'],
-                        first_row['system_id'],
-                        first_row['system_name'],
-                        first_row['biz_id'],
-                        first_row['biz_name'],
-                        first_row['system_biz_id']
-                    ))
-
-                    conn.execute(insert_query, (
-                        dataset_urn,
-                        'datasetProperties',
-                        0,
-                        dataset_properties_json,
-                        system_metadata_json,
-                        created_on,
-                        first_row['tgt_srv_id'],
-                        first_row['owner_srv_id'],
-                        first_row['system_id'],
-                        first_row['system_name'],
-                        first_row['biz_id'],
-                        first_row['biz_name'],
-                        first_row['system_biz_id']
+                        current_time_millis
                     ))
 
                 logger.info(f"Inserted or updated metadata for {len(grouped)} tables into main.metadata_aspect_v2")
@@ -470,13 +424,12 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
         if 'conn' in locals():
             conn.close()
 
-
 @click.command()
 @click.option('--pg-dsn', required=True, help='PostgreSQL connection string')
 @click.option('--duckdb-path', default='metadata.db', help='Path to DuckDB file')
-@click.option('--json-output', default='metadata.json',
-              help='Path to output JSON file (if not provided, data will be inserted into DuckDB)')
-def main(pg_dsn, duckdb_path, json_output):
+@click.option('--json-output', default=None, help='Path to output JSON file')
+@click.option('--gms-server', default=None, help='GMS server URL')
+def main(pg_dsn, duckdb_path, json_output, gms_server):
     logger.info("Starting metadata processing")
 
     try:
@@ -495,9 +448,11 @@ def main(pg_dsn, duckdb_path, json_output):
             return
 
         logger.info("Step 3: Creating metadata")
-        if create_metadata_from_duckdb(duckdb_path, json_output if json_output != 'metadata.json' else None):
-            if json_output != 'metadata.json':
+        if create_metadata_from_duckdb(duckdb_path, json_output, gms_server):
+            if json_output:
                 logger.info(f"Metadata JSON file created at {json_output}")
+            elif gms_server:
+                logger.info(f"Metadata sent to GMS server at {gms_server}")
             else:
                 logger.info("Metadata creation and insertion into DuckDB completed successfully")
         else:
@@ -509,7 +464,6 @@ def main(pg_dsn, duckdb_path, json_output):
         logger.error(f"An error occurred during the process: {e}")
     finally:
         logger.info("Metadata processing finished")
-
 
 if __name__ == '__main__':
     main()
