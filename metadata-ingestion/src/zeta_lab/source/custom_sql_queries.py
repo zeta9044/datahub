@@ -1,18 +1,17 @@
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Iterable, List
+from typing import Dict, Any, Optional, Iterable
 
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.source.sql_queries import SqlQueriesSource, SqlQueriesSourceConfig, QueryEntry as BaseQueryEntry
-from datahub.metadata.com.linkedin.pegasus2avro.metadata.aspect import SqlParsingResult
 from datahub.metadata.com.linkedin.pegasus2avro.metadata.aspect import ColumnLineageInfo
+from datahub.metadata.com.linkedin.pegasus2avro.metadata.aspect import SqlParsingResult
 from datahub.metadata.schema_classes import ChangeTypeClass
-from datahub.sql_parsing._models import _TableName
 from datahub.sql_parsing.sqlglot_lineage import SqlParsingResult as SqlglotParsingResult, sqlglot_lineage
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +44,6 @@ class CustomQueryEntry(BaseQueryEntry):
 class CustomSqlQueriesSource(SqlQueriesSource):
     def __init__(self, config: SqlQueriesSourceConfig, ctx):
         super().__init__(config, ctx)
-        logger.info(f"Initialized CustomSqlQueriesSource with config: {config}")
 
     def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
         logger.info(f"Reading queries from file: {self.config.query_file}")
@@ -60,37 +58,13 @@ class CustomSqlQueriesSource(SqlQueriesSource):
                     logger.error(f"Error processing query on line {line_num}: {str(e)}")
                     self.report.report_failure("process-query", f"Error on line {line_num}: {str(e)}")
 
-    def _extract_table_name_from_urn(self, urn: str) -> TableNameClass:
-        # Extract the relevant parts from the URN
-        parts = urn.split(',')
-        if len(parts) < 2:
-            raise ValueError(f"Invalid URN format: {urn}")
-
-        full_name = parts[1].split(')')[0]  # Remove the closing parenthesis and anything after
-        name_parts = full_name.split('.')
-
-        if len(name_parts) == 3:
-            return TableNameClass(database=name_parts[0], db_schema=name_parts[1], table=name_parts[2])
-        elif len(name_parts) == 2:
-            return TableNameClass(db_schema=name_parts[0], table=name_parts[1])
-        else:
-            return TableNameClass(table=full_name)
-
-    def _get_full_dataset_urn(self, table_reference: Union[str, TableNameClass]) -> str:
-        if isinstance(table_reference, str) and table_reference.startswith('urn:li:dataset:'):
-            # If it's a URN, extract the table name and use it to get the correct URN
-            table_name = self._extract_table_name_from_urn(table_reference)
-            return self.schema_resolver.get_urn_for_table(table_name)
-        elif isinstance(table_reference, str):
-            # If it's a string but not a URN, assume it's a table name
-            return self.schema_resolver.get_urn_for_table(TableNameClass(table=table_reference))
-        else:
-            # If it's already a TableNameClass, use it directly
-            return self.schema_resolver.get_urn_for_table(table_reference)
-
     def _process_query(self, entry: CustomQueryEntry) -> Iterable[MetadataWorkUnit]:
         try:
             logger.info(f"Processing query: {entry.query[:100]}...")  # Log first 100 chars of the query
+
+            # Validate schema_resolver before use
+            if not self.schema_resolver:
+                raise ValueError("schema_resolver is not initialized")
 
             result = sqlglot_lineage(
                 sql=entry.query,
@@ -105,15 +79,15 @@ class CustomSqlQueriesSource(SqlQueriesSource):
             column_lineage = []
             if custom_result.column_lineage:
                 for cl in custom_result.column_lineage:
-                    downstream_urn = self._get_full_dataset_urn(cl.downstream.table)
-                    upstream_urns = [self._get_full_dataset_urn(uc.table) for uc in cl.upstreams]
+                    downstream_urn = cl.downstream.table
+                    upstream_urns = [uc.table for uc in cl.upstreams]
                     column_lineage.append(ColumnLineageInfo(
                         downstreamColumn=f"{downstream_urn}.{cl.downstream.column}",
                         upstreamColumns=[f"{uc_urn}.{uc.column}" for uc_urn, uc in zip(upstream_urns, cl.upstreams)]
                     ))
 
-            in_tables = [self._get_full_dataset_urn(table) for table in custom_result.in_tables]
-            out_tables = [self._get_full_dataset_urn(table) for table in custom_result.out_tables]
+            in_tables = [table for table in custom_result.in_tables]
+            out_tables = [table for table in custom_result.out_tables]
 
             sql_parse_result_aspect = SqlParsingResult(
                 query=entry.query,
