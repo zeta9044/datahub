@@ -291,6 +291,20 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
 
     urn = unquote(encoded_urn)
 
+    # 특수 URN 처리
+    if urn == "urn:li:telemetry:clientId" and aspect == "telemetryClientId":
+        # 텔레메트리 클라이언트 ID에 대한 더미 데이터 반환
+        dummy_data = {
+            "clientId": "dummy-client-id",
+            "lastUpdated": int(time.time() * 1000)
+        }
+        return {
+            "aspect": {
+                "telemetryClientId": dummy_data
+            },
+            "systemMetadata": None
+        }
+
     result = conn.execute('''
         SELECT metadata, systemMetadata
         FROM metadata_aspect_v2
@@ -342,33 +356,40 @@ async def graphql_endpoint(request: Request):
         logger.info(f"Variables: {variables}")
 
         if "scrollAcrossEntities" in query:
-            or_filters = [
-                OrFilterInput([
-                    AndFilterInput(**filter_input)
-                    for filter_input in or_filter.get('and', [])
-                ])
-                for or_filter in variables.get('orFilters', [])
-            ]
+            or_filters = variables.get('orFilters', [])
 
-            input_data = ScrollAcrossEntitiesInput(
-                query=variables.get('query', '*'),
-                types=variables.get('types', []),
-                orFilters=or_filters,
-                count=variables.get('batchSize', 100),
-                scrollId=variables.get('scrollId')
-            )
+            where_clauses = []
+            params = []
 
-            where_clause, params = build_where_clause(input_data.orFilters)
+            for or_filter in or_filters:
+                and_clauses = []
+                for and_filter in or_filter['and']:
+                    field = and_filter['field']
+                    value = and_filter.get('value') or and_filter.get('values', [])[0]
+
+                    if field == 'platform.keyword':
+                        and_clauses.append("urn LIKE ?")
+                        params.append(f"urn:li:dataset:(urn:li:dataPlatform:{value.split(':')[-1]},%")
+                    elif field == 'origin':
+                        and_clauses.append("urn LIKE ?")
+                        params.append(f"%,{value})")
+
+                if and_clauses:
+                    where_clauses.append(f"({' AND '.join(and_clauses)})")
+
+            final_where = " OR ".join(where_clauses) if where_clauses else "1=1"
 
             query = f"""
                 SELECT DISTINCT urn, aspect, metadata
                 FROM metadata_aspect_v2
-                WHERE {where_clause}
-                LIMIT ? OFFSET ?
+                WHERE {final_where}
             """
 
-            start = int(input_data.scrollId) if input_data.scrollId else 0
-            result = conn.execute(query, params + [input_data.count, start]).fetchall()
+            logger.debug(f"Executing SQL query: {query}")
+            logger.debug(f"SQL parameters: {params}")
+
+            result = conn.execute(query, params).fetchall()
+            logger.debug(f"SQL query result: {result}")
 
             search_results = []
             for row in result:
@@ -377,30 +398,33 @@ async def graphql_endpoint(request: Request):
                     "urn": urn,
                     "type": urn.split(':')[2],
                 }
-                processed_aspect = process_aspect(aspect, metadata)
-                if processed_aspect:
-                    entity[aspect] = processed_aspect
+                if aspect == 'schemaMetadata':
+                    schema_metadata = json.loads(metadata)
+                    entity['schemaMetadata'] = {
+                        'fields': [
+                            {
+                                'fieldPath': field.get('fieldPath'),
+                                'nativeDataType': field.get('nativeDataType')
+                            }
+                            for field in schema_metadata.get('fields', [])
+                        ]
+                    }
                 search_results.append({"entity": entity})
 
-            total = conn.execute(f"SELECT COUNT(DISTINCT urn) FROM metadata_aspect_v2 WHERE {where_clause}", params).fetchone()[0]
-
-            logger.info(f"Found {len(search_results)} entities")
-
-            next_start = start + len(search_results)
-            has_next_page = next_start < total
+            total = len(search_results)
 
             response = {
                 "data": {
                     "scrollAcrossEntities": {
-                        "nextScrollId": str(next_start) if has_next_page else None,
+                        "nextScrollId": None,
                         "searchResults": search_results,
-                        "start": start,
-                        "count": len(search_results),
+                        "start": 0,
+                        "count": total,
                         "total": total,
                         "pageInfo": {
-                            "startCursor": str(start),
-                            "endCursor": str(next_start - 1),
-                            "hasNextPage": has_next_page
+                            "startCursor": "0",
+                            "endCursor": str(total - 1),
+                            "hasNextPage": False
                         }
                     }
                 }
