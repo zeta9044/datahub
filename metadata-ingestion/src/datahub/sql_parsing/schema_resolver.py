@@ -126,7 +126,7 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
         urn = self.get_urn_for_table(table)
 
         found_urn = self.find_urn_in_cache(self.platform,table.table,self.env)
-        if not found_urn:
+        if found_urn:
             urn = found_urn
 
         schema_info = self._resolve_schema_info(urn)
