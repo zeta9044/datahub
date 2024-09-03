@@ -17,6 +17,10 @@ from datahub.sql_parsing._models import _TableName
 from datahub.sql_parsing.sql_parsing_common import PLATFORMS_WITH_CASE_SENSITIVE_TABLES
 from datahub.utilities.file_backed_collections import ConnectionWrapper, FileBackedDict
 from datahub.utilities.urns.field_paths import get_simple_field_path_from_v2_field_path
+import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # A lightweight table schema: column -> type mapping.
 SchemaInfo = Dict[str, str]
@@ -49,13 +53,13 @@ class SchemaResolverInterface(Protocol):
 
 class SchemaResolver(Closeable, SchemaResolverInterface):
     def __init__(
-        self,
-        *,
-        platform: str,
-        platform_instance: Optional[str] = None,
-        env: str = DEFAULT_ENV,
-        graph: Optional[DataHubGraph] = None,
-        _cache_filename: Optional[pathlib.Path] = None,
+            self,
+            *,
+            platform: str,
+            platform_instance: Optional[str] = None,
+            env: str = DEFAULT_ENV,
+            graph: Optional[DataHubGraph] = None,
+            _cache_filename: Optional[pathlib.Path] = None,
     ):
         # Also supports platform with an urn prefix.
         self._platform = DataPlatformUrn(platform).platform_name
@@ -121,6 +125,10 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
     def resolve_table(self, table: _TableName) -> Tuple[str, Optional[SchemaInfo]]:
         urn = self.get_urn_for_table(table)
 
+        found_urn = self.find_urn_in_cache(self.platform,table.table,self.env)
+        if not found_urn:
+            urn = found_urn
+
         schema_info = self._resolve_schema_info(urn)
         if schema_info:
             return urn, schema_info
@@ -142,6 +150,38 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
     def has_urn(self, urn: str) -> bool:
         return self._schema_cache.get(urn) is not None
 
+    def find_urn_in_cache(self, platform: str, table_name: str, env: str) -> Optional[str]:
+        logger.debug(f"Searching for URN: platform={platform}, table={table_name}, env={env}")
+
+        # URN 패턴 생성 (캐시 구조에 맞게 조정)
+        urn_pattern = f"urn:li:dataset:\\(urn:li:dataPlatform:{platform},.*{table_name},{env}\\)"
+
+        logger.debug(f"Using URN pattern: {urn_pattern}")
+
+        matching_urns = []
+        for urn in self._schema_cache.keys():
+            logger.debug(f"cache urn ==> {urn}")
+            if re.match(urn_pattern, urn, re.IGNORECASE):
+                matching_urns.append(urn)
+
+        if not matching_urns:
+            logger.debug("No matching URN found in cache.")
+            return None
+
+        # 결과 필터링 (필요한 경우)
+        if len(matching_urns) > 1:
+            # 가장 근접한 매치 선택
+            exact_matches = [urn for urn in matching_urns if table_name.lower() in urn.lower()]
+            if exact_matches:
+                selected_urn = exact_matches[0]
+            else:
+                selected_urn = matching_urns[0]
+        else:
+            selected_urn = matching_urns[0]
+
+        logger.debug(f"Selected URN: {selected_urn}")
+        return selected_urn
+
     def _resolve_schema_info(self, urn: str) -> Optional[SchemaInfo]:
         if urn in self._schema_cache:
             return self._schema_cache[urn]
@@ -159,7 +199,7 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
         return None
 
     def add_schema_metadata(
-        self, urn: str, schema_metadata: SchemaMetadataClass
+            self, urn: str, schema_metadata: SchemaMetadataClass
     ) -> None:
         schema_info = self._convert_schema_aspect_to_info(schema_metadata)
         self._save_to_cache(urn, schema_info)
@@ -168,13 +208,13 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
         self._save_to_cache(urn, schema_info)
 
     def add_graphql_schema_metadata(
-        self, urn: str, schema_metadata: GraphQLSchemaMetadata
+            self, urn: str, schema_metadata: GraphQLSchemaMetadata
     ) -> None:
         schema_info = self.convert_graphql_schema_metadata_to_info(schema_metadata)
         self._save_to_cache(urn, schema_info)
 
     def with_temp_tables(
-        self, temp_tables: Dict[str, Optional[List[SchemaFieldClass]]]
+            self, temp_tables: Dict[str, Optional[List[SchemaFieldClass]]]
     ) -> SchemaResolverInterface:
         extra_schemas = {
             urn: (
@@ -201,19 +241,19 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
 
     @classmethod
     def _convert_schema_aspect_to_info(
-        cls, schema_metadata: SchemaMetadataClass
+            cls, schema_metadata: SchemaMetadataClass
     ) -> SchemaInfo:
         return cls._convert_schema_field_list_to_info(schema_metadata.fields)
 
     @classmethod
     def _convert_schema_field_list_to_info(
-        cls, schema_fields: List[SchemaFieldClass]
+            cls, schema_fields: List[SchemaFieldClass]
     ) -> SchemaInfo:
         return {
             get_simple_field_path_from_v2_field_path(col.fieldPath): (
                 # The actual types are more of a "nice to have".
-                col.nativeDataType
-                or "str"
+                    col.nativeDataType
+                    or "str"
             )
             for col in schema_fields
             # TODO: We can't generate lineage to columns nested within structs yet.
@@ -222,13 +262,13 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
 
     @classmethod
     def convert_graphql_schema_metadata_to_info(
-        cls, schema: GraphQLSchemaMetadata
+            cls, schema: GraphQLSchemaMetadata
     ) -> SchemaInfo:
         return {
             get_simple_field_path_from_v2_field_path(field["fieldPath"]): (
                 # The actual types are more of a "nice to have".
-                field["nativeDataType"]
-                or "str"
+                    field["nativeDataType"]
+                    or "str"
             )
             for field in schema["fields"]
             # TODO: We can't generate lineage to columns nested within structs yet.
@@ -241,9 +281,9 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
 
 class _SchemaResolverWithExtras(SchemaResolverInterface):
     def __init__(
-        self,
-        base_resolver: SchemaResolver,
-        extra_schemas: Dict[str, Optional[SchemaInfo]],
+            self,
+            base_resolver: SchemaResolver,
+            extra_schemas: Dict[str, Optional[SchemaInfo]],
     ):
         self._base_resolver = base_resolver
         self._extra_schemas = extra_schemas
