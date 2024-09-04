@@ -3,6 +3,7 @@ from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
 DATAHUB_URL = "http://zeta:8000"
+QTRACK_URL = "http://zeta:8001"
 
 # Define the common sink configuration
 common_sink_config = {
@@ -12,6 +13,15 @@ common_sink_config = {
     }
 }
 
+duckdb_sink_config = {
+    "type": "datahub-lite",
+    "config": {
+        "type": "duckdb",
+        "config":{
+            "file":"D:/zeta/ingest/777.db"
+        }
+    }
+}
 # Define your ingestion configuration for Postgres
 # postgres_pipeline_config = {
 #     "source": {
@@ -49,32 +59,33 @@ common_sink_config = {
 #     "sink": common_sink_config
 # }
 
-# queries_pipeline_debug_config = {
-#     "datahub_api": {
-#       "server": DATAHUB_URL,
-#       "timeout_sec": 60
-#     },
-#     "source": {
-#         "type": "sql-queries",
-#         "config": {
-#             "query_file": "D:/zeta/ingest/test.json",
-#             "platform": "snowflake",
-#             "platform_instance": "na",
-#             "default_db": "na",
-#             "default_schema": "na",
-#             "env": "PROD",
-#             "usage": {
-#                 "format_sql_queries": "True"
-#             }
-#         }
-#     },
-#     "sink": {
-#         "type": "file",
-#         "config": {
-#             "filename": "D:/zeta/logs/queries_ingestion.log"
-#         }
-#     }
-# }
+queries_pipeline_debug_config = {
+    "datahub_api": {
+      "server": DATAHUB_URL,
+      "timeout_sec": 60
+    },
+    "source": {
+        "type": "sql-queries",
+        "config": {
+            "query_file": "D:/zeta/ingest/test.json",
+            "platform": "snowflake",
+            "platform_instance": "na",
+            "default_db": "na",
+            "default_schema": "na",
+            "env": "PROD",
+            "usage": {
+                "format_sql_queries": "True"
+            }
+        }
+    },
+    # "sink": {
+    #     "type": "file",
+    #     "config": {
+    #         "filename": "D:/zeta/logs/queries_ingestion.log"
+    #     }
+    # }
+    "sink": duckdb_sink_config
+}
 
 custom_queries_pipeline_debug_config = {
     "datahub_api": {
@@ -95,12 +106,21 @@ custom_queries_pipeline_debug_config = {
                     }
                 }
             },
-            "sink": {
-                "type": "file",
-                "config": {
-                    "filename": "D:/zeta/logs/custom_queries_ingestion.log"
-                }
-            }
+            # "sink": {
+            #     "type": "file",
+            #     "config": {
+            #         "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+            #     }
+            # }
+
+            "sink": duckdb_sink_config
+
+    # "sink": {
+    #     "type": "console",
+    #     # "config": {
+    #     #     "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+    #     # }
+    # }
 }
 
 # metadata_file_pipeline_config = {
@@ -119,7 +139,7 @@ custom_queries_pipeline_debug_config = {
 # Define a list of pipeline configurations
 # pipeline_configs = [postgres_pipeline_config, queries_pipeline_config]
 # pipeline_configs = [queries_pipeline_debug_config]
-pipeline_configs = [custom_queries_pipeline_debug_config]
+pipeline_configs = [custom_queries_pipeline_debug_config,queries_pipeline_debug_config]
 # pipeline_configs = [metadata_file_pipeline_config]
 
 # Extract function to run pipeline
