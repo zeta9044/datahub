@@ -22,7 +22,7 @@ log_file_path = 'D:/zeta/logs/async_lite_gms.log'
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-file_handler = RotatingFileHandler(log_file_path, maxBytes=10*1024*1024, backupCount=5)
+file_handler = RotatingFileHandler(log_file_path, maxBytes=10 * 1024 * 1024, backupCount=5)
 file_handler.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler(sys.stdout)
@@ -45,10 +45,11 @@ processing_event = asyncio.Event()
 # Global DuckDB connection
 conn = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global conn
-    conn = duckdb.connect('D:/zeta/ingest/datahub.db')
+    conn = duckdb.connect('D:/zeta/ingest/datahub3.db')
     conn.execute('''
         CREATE TABLE IF NOT EXISTS metadata_aspect_v2 (
             urn VARCHAR,
@@ -65,41 +66,9 @@ async def lifespan(app: FastAPI):
     if conn:
         conn.close()
 
+
 app = FastAPI(lifespan=lifespan)
 
-class AspectModel(BaseModel):
-    urn: str
-    aspect: str
-    metadata: Dict[str, Any]
-    systemMetadata: Optional[Dict[str, Any]] = None
-
-class AndFilterInput:
-    def __init__(self, field: str, values: Optional[List[str]] = None, value: Optional[str] = None, condition: str = 'EQUAL', negated: bool = False):
-        self.field = field
-        self.values = values or []
-        if value is not None:
-            self.values.append(value)
-        self.condition = condition
-        self.negated = negated
-
-class OrFilterInput:
-    def __init__(self, and_filters: List[AndFilterInput]):
-        self.and_filters = and_filters
-
-class ScrollAcrossEntitiesInput:
-    def __init__(
-            self,
-            query: str,
-            types: List[str],
-            orFilters: List[OrFilterInput],
-            count: int,
-            scrollId: Optional[str] = None,
-    ):
-        self.query = query
-        self.types = types
-        self.orFilters = orFilters
-        self.count = count
-        self.scrollId = scrollId
 
 async def process_queue():
     global conn
@@ -125,8 +94,10 @@ async def process_queue():
             processing_event.set()
         await asyncio.sleep(0.1)
 
+
 def decapitalize(name):
     return name[0].lower() + name[1:] if name else ''
+
 
 def extract_dataset_key(urn):
     match = re.match(r'urn:li:dataset:\(urn:li:dataPlatform:(\w+),(.*),(\w+)\)', urn)
@@ -139,6 +110,7 @@ def extract_dataset_key(urn):
         }
     return None
 
+
 def process_special_aspect(aspect_value):
     if isinstance(aspect_value, dict) and 'value' in aspect_value:
         try:
@@ -146,6 +118,7 @@ def process_special_aspect(aspect_value):
         except json.JSONDecodeError:
             return aspect_value['value']
     return aspect_value
+
 
 def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
     try:
@@ -167,32 +140,6 @@ def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
         logger.error(f"Error decoding JSON for aspect {aspect}")
         return {}
 
-def build_where_clause(or_filters: List[OrFilterInput]) -> tuple:
-    where_clauses = []
-    params = []
-    for or_filter in or_filters:
-        and_clauses = []
-        for and_filter in or_filter.and_filters:
-            if and_filter.field == 'platform.keyword':
-                and_clauses.append("urn LIKE ?")
-                params.append(f"{and_filter.values[0]}:%")
-            elif and_filter.field == 'removed':
-                if and_filter.negated:
-                    and_clauses.append("urn NOT LIKE ?")
-                else:
-                    and_clauses.append("urn LIKE ?")
-                params.append("%:DELETED")
-            elif and_filter.field == 'customProperties':
-                and_clauses.append("metadata LIKE ?")
-                params.append(f"%{and_filter.values[0]}%")
-            elif and_filter.field == 'origin':
-                and_clauses.append("metadata LIKE ?")
-                params.append(f"%\"origin\":\"{and_filter.values[0]}\"%")
-        if and_clauses:
-            where_clauses.append(f"({' AND '.join(and_clauses)})")
-
-    final_where = " OR ".join(where_clauses) if where_clauses else "1=1"
-    return final_where, params
 
 @app.get("/config")
 async def get_config():
@@ -206,6 +153,7 @@ async def get_config():
         "statefulIngestionCapable": True,
         "retention": "true"
     }
+
 
 @app.post("/entities")
 async def ingest_entity(request: Request, action: str = Query(...)):
@@ -249,6 +197,7 @@ async def ingest_entity(request: Request, action: str = Query(...)):
 
     return {"status": "queued"}
 
+
 @app.post("/aspects")
 async def ingest_aspect(request: Request, action: str = Query(...)):
     if action not in ["ingestProposal", "ingestProposalBatch"]:
@@ -282,6 +231,7 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
         ))
 
     return {"status": "queued", "count": len(proposals)}
+
 
 @app.get("/aspects/{encoded_urn}")
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
@@ -321,6 +271,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         "systemMetadata": json.loads(result[1]) if result[1] else None
     }
 
+
 @app.post("/usageStats")
 async def ingest_usage_stats(request: Request, action: str = Query(...)):
     if action != "batchIngest":
@@ -344,6 +295,7 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
         ))
 
     return {"status": "queued", "count": len(buckets)}
+
 
 @app.post("/api/graphql")
 async def graphql_endpoint(request: Request):
@@ -441,7 +393,9 @@ async def graphql_endpoint(request: Request):
         logger.error(f"Error occurred during GraphQL query execution: {str(e)}")
         return JSONResponse(content={"errors": [str(e)]}, status_code=500)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     logger.info("Starting async_lite_gms server...")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
