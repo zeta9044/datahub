@@ -129,7 +129,7 @@ class ColumnLineageInfo(_ParserBaseModel):
     upstreams: List[ColumnRef]
 
     # Logic for this column, as a SQL expression.
-    logic: Optional[str] = pydantic.Field(default=None, exclude=True)
+    logic: Optional[str] = pydantic.Field(default=None, exclude=False)
 
 
 class SqlParsingDebugInfo(_ParserBaseModel):
