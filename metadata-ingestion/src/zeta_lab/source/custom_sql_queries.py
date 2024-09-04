@@ -100,14 +100,10 @@ class CustomSqlQueriesSource(SqlQueriesSource):
                 customKeys={k: str(v) for k, v in custom_result.custom_keys.items()}  # Ensure all values are strings
             )
 
-            # Use the first output table as the entity to attach the aspect to
-            if out_tables:
-                dataset_urn = out_tables[0]
-            else:
-                #  If there's no output table, create a virtual dataset for query-lineage
-                custom_keys_name = "-".join(map(str, custom_result.custom_keys.values()))
-                dataset_name = f"{custom_keys_name}_{custom_result.query_fingerprint}"
-                dataset_urn = f"urn:li:dataset:(urn:li:dataPlatform:sql-query,{dataset_name},{self.config.env})"
+            # create a virtual dataset for query-lineage
+            custom_keys_name = "-".join(map(str, custom_result.custom_keys.values()))
+            dataset_name = f"{custom_keys_name}_{custom_result.query_fingerprint}"
+            dataset_urn = f"urn:li:dataset:(urn:li:dataPlatform:sql-query,{dataset_name},{self.config.env})"
 
             # Emit SQL parsing result as a custom aspect
             sql_parsing_mcp = MetadataChangeProposalWrapper(
