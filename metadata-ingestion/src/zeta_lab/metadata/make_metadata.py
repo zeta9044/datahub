@@ -1,7 +1,9 @@
 import hashlib
 import json
 import logging
+import sys
 import time
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 import click
@@ -9,23 +11,23 @@ import duckdb
 from sqlalchemy import create_engine, select, MetaData, Table, func, text
 
 import datahub.emitter.mce_builder as builder
-from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 from datahub.metadata._schema_classes import MetadataChangeEventClass, DatasetSnapshotClass, DatasetPropertiesClass, \
     SchemaMetadataClass, SchemaFieldClass, SchemaFieldDataTypeClass, AuditStampClass
 from datahub.metadata.schema_classes import (
     SystemMetadataClass,
 )
-from zeta_lab.utilities.tool import log_execution_time, infer_type_from_native
-
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from zeta_lab.utilities.tool import format_time, infer_type_from_native
 
 
-@log_execution_time(log_file='execution_time.log')
 def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
+    """
+    :param pg_dsn: PostgreSQL Data Source Name used to establish connection to the PostgreSQL database.
+    :param duckdb_path: File path to the DuckDB database where meta instances will be stored.
+    :return: Returns True if the transfer is successful, None otherwise.
+    """
     try:
+        start_time = time.time()
         pg_engine = create_engine(pg_dsn)
         with pg_engine.connect() as pg_conn:
             select_stmt = """
@@ -80,23 +82,29 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
                 ''', row)
             except duckdb.ConstraintException as e:
                 if "Constraint Error: Duplicate key" in str(e):
-                    logger.warning(f"Duplicate key found, skipping: {row}")
+                    logging.warning(f"Duplicate key found, skipping: {row}")
                 else:
-                    logger.error(f"An error occurred while inserting row {row}: {e}")
+                    logging.error(f"An error occurred while inserting row {row}: {e}")
                     raise
 
-        logger.info("Meta instance transfer completed successfully.")
+        end_time = time.time()
+        time_taken = format_time(end_time - start_time)
+        logging.info(f"Meta instance transfer complete! Time taken: {time_taken} ")
         return True
     except Exception as e:
-        logger.error(f"An error occurred during meta instance transfer: {e}")
+        logging.error(f"An error occurred during meta instance transfer: {e}")
         return None
     finally:
         if 'conn' in locals():
             conn.close()
 
 
-@log_execution_time(log_file='execution_time.log')
 def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
+    """
+    :param pg_dsn: The Data Source Name (DSN) for connecting to the PostgreSQL database.
+    :param duckdb_path: The file path to the DuckDB database.
+    :return: The time taken for the metadata transfer in seconds, or None if an error occurred.
+    """
     try:
         pg_engine = create_engine(pg_dsn)
         metadata = MetaData()
@@ -183,11 +191,11 @@ def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
             raise e
 
         end_time = time.time()
-        time_taken = end_time - start_time
-        logger.info(f"Metadata transfer complete! Time taken: {time_taken:.2f} seconds")
+        time_taken = format_time(end_time - start_time)
+        logging.info(f"Metadata transfer complete! Time taken: {time_taken} ")
         return time_taken
     except Exception as e:
-        logger.error(f"An error occurred during metadata transfer: {e}")
+        logging.error(f"An error occurred during metadata transfer: {e}")
         return None
     finally:
         if 'conn' in locals():
@@ -195,15 +203,29 @@ def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
 
 
 def drop_metadata_origin_table(conn):
+    """
+    :param conn: The database connection object used to execute the SQL command.
+    :return: None. This function does not return any value.
+    """
     try:
         conn.execute("DROP TABLE IF EXISTS main.metadata_origin")
-        logger.info("Dropped table main.metadata_origin")
+        logging.info("Dropped table main.metadata_origin")
     except Exception as e:
-        logger.error(f"Error dropping main.metadata_origin: {e}")
+        logging.error(f"Error dropping main.metadata_origin: {e}")
 
 
 def create_metadata_origin(conn):
+    """
+    Create the metadata_origin table if it does not exist by combining data from
+    meta_instance and qt_meta_populator tables with specific transformations and
+    schema requirements.
+
+    :param conn: Database connection object used to execute SQL queries
+    :return: None
+    """
     try:
+        start_time = time.time()
+
         drop_metadata_origin_table(conn)
         create_table_query = """
             CREATE TABLE IF NOT EXISTS main.metadata_origin AS
@@ -225,13 +247,19 @@ def create_metadata_origin(conn):
                 mi.system_biz_id = qmp.system_biz_id;
         """
         conn.execute(create_table_query)
-        logger.info("Created table main.metadata_origin successfully")
+        end_time = time.time()
+        time_taken = format_time(end_time - start_time)
+        logging.info(f"main.metadata_origin create complete! Time taken: {time_taken} ")
     except Exception as e:
-        logger.error(f"Error creating main.metadata_origin: {e}")
+        logging.error(f"Error creating main.metadata_origin: {e}")
         raise
 
 
 def create_metadata_table(conn):
+    """
+    :param conn: The database connection object
+    :return: None
+    """
     try:
         create_table_query = """
             CREATE TABLE IF NOT EXISTS main.metadata_aspect_v2(
@@ -252,14 +280,18 @@ def create_metadata_table(conn):
             );
         """
         conn.execute(create_table_query)
-        logger.info("Created table main.metadata_aspect_v2 successfully")
+        logging.info("Created table main.metadata_aspect_v2 successfully")
     except Exception as e:
-        logger.error(f"Error creating main.metadata_aspect_v2: {e}")
+        logging.error(f"Error creating main.metadata_aspect_v2: {e}")
         raise
 
 
-
 def send_to_gms(metadata_change_proposals, gms_server):
+    """
+    :param metadata_change_proposals: A list of dictionaries where each dictionary represents a metadata change proposal containing the 'aspect' and 'entityUrn'.
+    :param gms_server: A string representing the GMS server address.
+    :return: None
+    """
     emitter = DatahubRestEmitter(gms_server)
     for proposal in metadata_change_proposals:
         try:
@@ -274,11 +306,16 @@ def send_to_gms(metadata_change_proposals, gms_server):
             )
 
             emitter.emit_mce(mce)
-            logger.info(f"Successfully sent proposal for {proposal['entityUrn']}")
+            logging.debug(f"Successfully sent proposal for {proposal['entityUrn']}")
         except Exception as e:
-            logger.error(f"Failed to send proposal for {proposal['entityUrn']}: {e}")
+            logging.error(f"Failed to send proposal for {proposal['entityUrn']}: {e}")
+
 
 def create_schema_fields(group):
+    """
+    :param group: A DataFrame containing schema field information where each row represents a field with 'field_path' and 'native_data_type' columns.
+    :return: A list of SchemaFieldClass instances constructed from the DataFrame's rows, with inferred data types.
+    """
     return [
         SchemaFieldClass(
             fieldPath=row['field_path'],
@@ -291,9 +328,17 @@ def create_schema_fields(group):
     ]
 
 
-@log_execution_time(log_file='execution_time.log')
-def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str] = None, gms_server: Optional[str] = None):
+def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str] = None,
+                                gms_server: Optional[str] = None):
+    """
+    :param duckdb_path: The file path to the DuckDB database.
+    :param json_output_path: Optional path where the metadata JSON file will be saved. If not provided, the data will be sent to the GMS server or stored in the DuckDB.
+    :param gms_server: Optional URL of the GMS server where metadata will be sent. If not provided, the data will be stored in a JSON file or stored in the DuckDB.
+    :return: Boolean indicating the success or failure of the metadata creation process.
+    """
     try:
+        start_time = time.time()
+
         conn = duckdb.connect(database=duckdb_path, read_only=False)
 
         create_metadata_origin(conn)
@@ -379,11 +424,11 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
                 # JSON 파일로 저장
                 with open(json_output_path, 'w') as f:
                     json.dump(metadata_change_proposals, f, indent=2, default=lambda x: x.to_obj())
-                logger.info(f"Metadata JSON file created at {json_output_path}")
+                logging.info(f"Metadata JSON file created at {json_output_path}")
             elif gms_server:
                 # GMS 서버로 전송
                 send_to_gms(metadata_change_proposals, gms_server)
-                logger.info(f"Metadata sent to GMS server at {gms_server}")
+                logging.info(f"Metadata sent to GMS server at {gms_server}")
             else:
                 # DuckDB에 저장
                 for proposal in metadata_change_proposals:
@@ -411,59 +456,85 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
                         current_time_millis
                     ))
 
-                logger.info(f"Inserted or updated metadata for {len(grouped)} tables into main.metadata_aspect_v2")
+                logging.info(f"Inserted or updated metadata for {len(grouped)} tables into main.metadata_aspect_v2")
                 conn.commit()
+
+                end_time = time.time()
+                time_taken = format_time(end_time - start_time)
+                logging.info(f"create_metadata_from_duckdb complete! Time taken: {time_taken} ")
         else:
-            logger.warning("No data found in metadata.")
+            logging.warning("No data found in metadata.")
 
         return True
     except Exception as e:
-        logger.error(f"Error in create_metadata_from_duckdb: {e}")
+        logging.error(f"Error in create_metadata_from_duckdb: {e}")
         return False
     finally:
         if 'conn' in locals():
             conn.close()
+
 
 @click.command()
 @click.option('--pg-dsn', required=True, help='PostgreSQL connection string')
 @click.option('--duckdb-path', default='metadata.db', help='Path to DuckDB file')
 @click.option('--json-output', default=None, help='Path to output JSON file')
 @click.option('--gms-server', default=None, help='GMS server URL')
-def main(pg_dsn, duckdb_path, json_output, gms_server):
-    logger.info("Starting metadata processing")
+@click.option('--log-file', default='metadata.log', help='Path to log file')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
+              help='Logging level')
+def main(pg_dsn, duckdb_path, json_output, gms_server, log_file, log_level):
+    """
+    :param pg_dsn: PostgreSQL connection string
+    :param duckdb_path: Path to DuckDB file
+    :param json_output: Path to output JSON file
+    :param gms_server: GMS server URL
+    :return: None
+    """
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+    logging.info("Starting metadata processing")
 
     try:
-        logger.info("Step 1: Transferring meta instance")
+        logging.info("Step 1: Transferring meta instance")
         if transfer_meta_instance(pg_dsn, duckdb_path):
-            logger.info("Meta instance transfer completed successfully")
+            logging.info("Meta instance transfer completed successfully")
         else:
-            logger.error("Meta instance transfer failed")
+            logging.error("Meta instance transfer failed")
             return
 
-        logger.info("Step 2: Transferring metadata")
+        logging.info("Step 2: Transferring metadata")
         if transfer_metadata(pg_dsn, duckdb_path):
-            logger.info("Metadata transfer completed successfully")
+            logging.info("Metadata transfer completed successfully")
         else:
-            logger.error("Metadata transfer failed")
+            logging.error("Metadata transfer failed")
             return
 
-        logger.info("Step 3: Creating metadata")
+        logging.info("Step 3: Creating metadata")
         if create_metadata_from_duckdb(duckdb_path, json_output, gms_server):
             if json_output:
-                logger.info(f"Metadata JSON file created at {json_output}")
+                logging.info(f"Metadata JSON file created at {json_output}")
             elif gms_server:
-                logger.info(f"Metadata sent to GMS server at {gms_server}")
+                logging.info(f"Metadata sent to GMS server at {gms_server}")
             else:
-                logger.info("Metadata creation and insertion into DuckDB completed successfully")
+                logging.info("Metadata creation and insertion into DuckDB completed successfully")
         else:
-            logger.error("Metadata creation failed")
+            logging.error("Metadata creation failed")
             return
 
-        logger.info("All steps completed successfully")
+        logging.info("All steps completed successfully")
     except Exception as e:
-        logger.error(f"An error occurred during the process: {e}")
+        logging.error(f"An error occurred during the process: {e}")
     finally:
-        logger.info("Metadata processing finished")
+        logging.info("Metadata processing finished")
+
 
 if __name__ == '__main__':
     main()

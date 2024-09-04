@@ -156,19 +156,6 @@ def log_execution_time(log_file='execution_time.log'):
                             logging.StreamHandler()
                         ])
 
-    def format_time(seconds):
-        if seconds >= 3600:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            seconds = seconds % 60
-            return f"{hours}h {minutes}m {seconds:.2f}s"
-        elif seconds >= 60:
-            minutes = int(seconds // 60)
-            seconds = seconds % 60
-            return f"{minutes}m {seconds:.2f}s"
-        else:
-            return f"{seconds:.2f}s"
-
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -185,6 +172,19 @@ def log_execution_time(log_file='execution_time.log'):
         return wrapper
 
     return decorator
+
+def format_time(seconds):
+    if seconds >= 3600:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = seconds % 60
+        return f"{hours}h {minutes}m {seconds:.2f}s"
+    elif seconds >= 60:
+        minutes = int(seconds // 60)
+        seconds = seconds % 60
+        return f"{minutes}m {seconds:.2f}s"
+    else:
+        return f"{seconds:.2f}s"
 
 def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
     """
