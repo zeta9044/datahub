@@ -11,7 +11,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.metadata.aspect import SqlParsin
 from datahub.metadata.schema_classes import ChangeTypeClass
 from datahub.sql_parsing.sqlglot_lineage import SqlParsingResult as SqlglotParsingResult, sqlglot_lineage
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
