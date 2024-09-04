@@ -46,6 +46,7 @@ from datahub.sql_parsing.sqlglot_utils import (
     get_query_fingerprint_debug,
     is_dialect_instance,
     parse_statement,
+    extract_insert_target_columns,
 )
 from datahub.utilities.cooperative_timeout import (
     CooperativeTimeoutError,
@@ -461,16 +462,20 @@ def _select_statement_cll(  # noqa: C901
     root_scope: sqlglot.optimizer.Scope,
     column_resolver: _ColumnResolver,
     output_table: Optional[_TableName],
+    original_statement: sqlglot.exp.Expression
 ) -> List[_ColumnLineageInfo]:
     column_lineage: List[_ColumnLineageInfo] = []
-
+    is_column_specified = False
+    insert_columns: List[str] = []
+    if isinstance(original_statement,sqlglot.exp.Insert):
+        is_column_specified, insert_columns = extract_insert_target_columns(original_statement)
     try:
         # List output columns.
         output_columns = [
-            (select_col.alias_or_name, select_col) for select_col in statement.selects
+            (index,select_col.alias_or_name, select_col) for index,select_col in enumerate(statement.selects)
         ]
         logger.debug("output columns: %s", [col[0] for col in output_columns])
-        for output_col, original_col_expression in output_columns:
+        for index,output_col, original_col_expression in output_columns:
             if not output_col or output_col == "*":
                 # If schema information is available, the * will be expanded to the actual columns.
                 # Otherwise, we can't process it.
@@ -534,6 +539,8 @@ def _select_statement_cll(  # noqa: C901
 
             if not direct_resolved_col_upstreams:
                 logger.debug(f'  "{output_col}" has no upstreams')
+            if is_column_specified:
+                output_col = insert_columns[index]
             column_lineage.append(
                 _ColumnLineageInfo(
                     downstream=_DownstreamColumnRef(
@@ -542,6 +549,7 @@ def _select_statement_cll(  # noqa: C901
                         column_type=output_col_type,
                     ),
                     upstreams=sorted(direct_resolved_col_upstreams),
+                    logic=original_col_expression.sql(pretty=True, dialect=dialect)
                     # logic=column_logic.sql(pretty=True, dialect=dialect),
                 )
             )
@@ -625,6 +633,7 @@ def _column_level_lineage(
         root_scope=root_scope,
         column_resolver=column_resolver,
         output_table=downstream_table,
+        original_statement=statement
     )
 
     return _ColumnLineageWithDebugInfo(

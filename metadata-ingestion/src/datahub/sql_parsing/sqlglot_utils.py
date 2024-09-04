@@ -47,7 +47,7 @@ def get_dialect(platform: DialectOrStr) -> sqlglot.Dialect:
 
 
 def is_dialect_instance(
-    dialect: sqlglot.Dialect, platforms: Union[str, Iterable[str]]
+        dialect: sqlglot.Dialect, platforms: Union[str, Iterable[str]]
 ) -> bool:
     if isinstance(platforms, str):
         platforms = [platforms]
@@ -63,7 +63,7 @@ def is_dialect_instance(
 
 @functools.lru_cache(maxsize=SQL_PARSE_CACHE_SIZE)
 def _parse_statement(
-    sql: sqlglot.exp.ExpOrStr, dialect: sqlglot.Dialect
+        sql: sqlglot.exp.ExpOrStr, dialect: sqlglot.Dialect
 ) -> sqlglot.Expression:
     statement: sqlglot.Expression = sqlglot.maybe_parse(
         sql, dialect=dialect, error_level=sqlglot.ErrorLevel.IMMEDIATE
@@ -72,7 +72,7 @@ def _parse_statement(
 
 
 def parse_statement(
-    sql: sqlglot.exp.ExpOrStr, dialect: sqlglot.Dialect
+        sql: sqlglot.exp.ExpOrStr, dialect: sqlglot.Dialect
 ) -> sqlglot.Expression:
     # Parsing is significantly more expensive than copying the expression.
     # Because the expressions are mutable, we don't want to allow the caller
@@ -103,7 +103,7 @@ def parse_statements_and_pick(sql: str, platform: DialectOrStr) -> sqlglot.Expre
 
 
 def _expression_to_string(
-    expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr
+        expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr
 ) -> str:
     if isinstance(expression, str):
         return expression
@@ -152,9 +152,9 @@ _TABLE_NAME_NORMALIZATION_RULES = {
 
 
 def generalize_query_fast(
-    expression: sqlglot.exp.ExpOrStr,
-    dialect: DialectOrStr,
-    change_table_names: bool = False,
+        expression: sqlglot.exp.ExpOrStr,
+        dialect: DialectOrStr,
+        change_table_names: bool = False,
 ) -> str:
     """Variant of `generalize_query` that only does basic normalization.
 
@@ -227,7 +227,7 @@ def generalize_query(expression: sqlglot.exp.ExpOrStr, dialect: DialectOrStr) ->
                 _simplify_node_expressions(expression)
 
     def _strip_expression(
-        node: sqlglot.exp.Expression,
+            node: sqlglot.exp.Expression,
     ) -> Optional[sqlglot.exp.Expression]:
         node.comments = None
 
@@ -247,7 +247,7 @@ def generate_hash(text: str) -> str:
 
 
 def get_query_fingerprint_debug(
-    expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, fast: bool = False
+        expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, fast: bool = False
 ) -> Tuple[str, Optional[str]]:
     try:
         if not fast:
@@ -271,7 +271,7 @@ def get_query_fingerprint_debug(
 
 
 def get_query_fingerprint(
-    expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, fast: bool = False
+        expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, fast: bool = False
 ) -> str:
     """Get a fingerprint for a SQL query.
 
@@ -298,7 +298,7 @@ def get_query_fingerprint(
 
 @functools.lru_cache(maxsize=FORMAT_QUERY_CACHE_SIZE)
 def try_format_query(
-    expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, raises: bool = False
+        expression: sqlglot.exp.ExpOrStr, platform: DialectOrStr, raises: bool = False
 ) -> str:
     """Format a SQL query.
 
@@ -325,7 +325,7 @@ def try_format_query(
 
 
 def detach_ctes(
-    sql: sqlglot.exp.ExpOrStr, platform: str, cte_mapping: Dict[str, str]
+        sql: sqlglot.exp.ExpOrStr, platform: str, cte_mapping: Dict[str, str]
 ) -> sqlglot.exp.Expression:
     """Replace CTE references with table references.
 
@@ -349,10 +349,10 @@ def detach_ctes(
 
     def replace_cte_refs(node: sqlglot.exp.Expression) -> sqlglot.exp.Expression:
         if (
-            isinstance(node, sqlglot.exp.Identifier)
-            and node.parent
-            and not isinstance(node.parent.parent, sqlglot.exp.CTE)
-            and node.name in cte_mapping
+                isinstance(node, sqlglot.exp.Identifier)
+                and node.parent
+                and not isinstance(node.parent.parent, sqlglot.exp.CTE)
+                and node.name in cte_mapping
         ):
             full_new_name = cte_mapping[node.name]
             table_expr = sqlglot.maybe_parse(
@@ -388,9 +388,48 @@ def detach_ctes(
         if new_statement == statement:
             if iteration > 1:
                 logger.debug(
-                    f"Required {iteration+1} iterations to detach and eliminate all CTEs"
+                    f"Required {iteration + 1} iterations to detach and eliminate all CTEs"
                 )
             break
         statement = new_statement
 
     return statement
+
+
+def extract_insert_target_columns(
+        original_statement: sqlglot.exp.Expression
+) -> Tuple[bool, List[str]]:
+    """
+
+    This method, `extract_insert_target_columns`, takes in an `original_statement` parameter of type `sqlglot.exp.Expression`. It returns a tuple containing a boolean value indicating whether
+    * the column is specified and a list of target columns.
+
+    :param original_statement: The original statement to extract target columns from.
+    :return: A tuple containing a boolean value indicating whether the column is specified and a list of target columns.
+
+    Example usage:
+
+    ```python
+    original_statement = sqlglot.exp.Insert(...)
+    is_column_specified, target_columns = extract_insert_target_columns(original_statement)
+    ```
+
+    """
+    # insert into table ( column...) select ...
+    is_column_specified = True
+
+    # Initialize an empty list to hold the target columns
+    target_columns = []
+
+    # Check if the parsed statement is an INSERT statement
+    if isinstance(original_statement, sqlglot.exp.Insert):
+        # Extract the columns part from the schema
+        schema = original_statement.args.get('this')
+        if schema:
+            columns = schema.args.get("expressions")
+            if columns:
+                target_columns = [col.name for col in columns if isinstance(col, sqlglot.exp.Identifier)]
+            else:
+                is_column_specified = False
+
+    return is_column_specified, target_columns
