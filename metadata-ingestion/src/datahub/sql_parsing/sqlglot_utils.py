@@ -2,7 +2,7 @@ import functools
 import hashlib
 import logging
 import re
-from typing import Dict, Iterable, Optional, Tuple, Union
+from typing import Dict, Iterable, Optional, Tuple, Union, List
 
 import sqlglot
 import sqlglot.errors
