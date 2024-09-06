@@ -43,6 +43,7 @@ class QueryType(enum.Enum):
     UPDATE = "UPDATE"
     DELETE = "DELETE"
     MERGE = "MERGE"
+    COPY_INTO = "COPY_INTO"  # BigQuery,Snowflake
 
     def is_create(self) -> bool:
         return self in {
