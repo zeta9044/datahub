@@ -9,7 +9,7 @@ from pydantic import validator
 
 logger = logging.getLogger(__name__)
 
-class SQLToJSONConverterConfig(ConfigModel):
+class CustomSQLToJSONConverterConfig(ConfigModel):
     input_path: str
     output_path: str
     
@@ -19,15 +19,15 @@ class SQLToJSONConverterConfig(ConfigModel):
             raise ValueError(f"Input path {v} does not exist")
         return v
 
-class SQLToJSONConverter(Source):
-    def __init__(self, config: SQLToJSONConverterConfig, ctx: PipelineContext):
+class CustomSQLToJSONConverter(Source):
+    def __init__(self, config: CustomSQLToJSONConverterConfig, ctx: PipelineContext):
         super().__init__(ctx)
         self.config = config
         self.report = SourceReport()
 
     @classmethod
-    def create(cls, config_dict: Dict, ctx: PipelineContext) -> 'SQLToJSONConverter':
-        config = SQLToJSONConverterConfig.parse_obj(config_dict)
+    def create(cls, config_dict: Dict, ctx: PipelineContext) -> 'CustomSQLToJSONConverter':
+        config = CustomSQLToJSONConverterConfig.parse_obj(config_dict)
         return cls(config, ctx)
 
     def get_workunits(self) -> List[Any]:
@@ -43,6 +43,8 @@ class SQLToJSONConverter(Source):
         pass
 
     def _read_sql_files(self) -> List[Dict[str, str]]:
+        # TODO: 소스분석을 직접 sql으로 처리하는 경우,
+        # prj_id,file_id,sql_id를 생성해서 custom_keys를 추가하는 것이 필요.
         queries = []
         for root, _, files in os.walk(self.config.input_path):
             for file in files:
@@ -70,5 +72,5 @@ class SQLToJSONConverter(Source):
 
 # Add this to the source_registry
 from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("sql_to_json_converter", SQLToJSONConverter)
-logger.info("Registered sql_to_json_converter source")
+source_registry.register("custom_sql_to_json_converter", CustomSQLToJSONConverter)
+logger.info("Registered custom_sql_to_json_converter source")
