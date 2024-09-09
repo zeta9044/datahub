@@ -782,6 +782,8 @@ def _try_extract_select(
         # TODO May need to map column renames.
         # Assumption: the output table is already captured in the modified tables list.
         statement = _extract_select_from_create(statement)
+    # elif isinstance(statement,sqlglot.exp.Copy):
+    #     statement = statement.expression
 
     if isinstance(statement, sqlglot.exp.Subquery):
         statement = statement.unnest()
@@ -968,15 +970,21 @@ def _sqlglot_lineage_inner(
                 SQL_LINEAGE_TIMEOUT_SECONDS if SQL_LINEAGE_TIMEOUT_ENABLED else None
             )
         ):
-            column_lineage_debug_info = _column_level_lineage(
-                statement,
-                dialect=dialect,
-                downstream_table=downstream_table,
-                table_name_schema_mapping=table_name_schema_mapping,
-                default_db=default_db,
-                default_schema=default_schema,
-            )
-            column_lineage = column_lineage_debug_info.column_lineage
+            # INSERT INTO ... VALUES 구문 체크
+            if isinstance(statement, sqlglot.exp.Insert) and isinstance(statement.expression, sqlglot.exp.Values):
+                logger.debug("Skipping column-level lineage for INSERT INTO ... VALUES statement")
+            elif isinstance(statement, sqlglot.exp.Copy):
+                logger.debug("Skipping column-level lineage for COPY INTO ... FROM ... statement")
+            else :
+                column_lineage_debug_info = _column_level_lineage(
+                    statement,
+                    dialect=dialect,
+                    downstream_table=downstream_table,
+                    table_name_schema_mapping=table_name_schema_mapping,
+                    default_db=default_db,
+                    default_schema=default_schema,
+                )
+                column_lineage = column_lineage_debug_info.column_lineage
     except CooperativeTimeoutError as e:
         logger.debug(f"Timed out while generating column-level lineage: {e}")
         debug_info.column_error = e
