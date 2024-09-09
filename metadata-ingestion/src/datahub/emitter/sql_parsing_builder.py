@@ -45,6 +45,10 @@ class LineageEdge:
     # Maps downstream_col -> {upstream_col}
     column_map: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))
 
+    query: Optional[str] = None  # Add query field
+    custom_keys: Optional[Dict[str, str]] = None # Add custom keys field
+    column_logic: Optional[Dict[str, str]] = field(default_factory=dict)  # New field to store column logic
+
     def gen_upstream_aspect(self) -> UpstreamClass:
         return UpstreamClass(
             auditStamp=(
@@ -57,6 +61,8 @@ class LineageEdge:
             ),
             dataset=self.upstream_urn,
             type=self.type,
+            query=self.query,  # Include query field
+            query_custom_keys=self.custom_keys, # Include custom key for query
         )
 
     def gen_fine_grained_lineage_aspects(self) -> Iterable[FineGrainedLineageClass]:
@@ -72,6 +78,7 @@ class LineageEdge:
                 downstreams=[
                     make_schema_field_urn(self.downstream_urn, downstream_col)
                 ],
+                transformOperation=self.column_logic.get(downstream_col)  # Include logic if available
             )
 
 
@@ -111,6 +118,7 @@ class SqlParsingBuilder:
         custom_operation_type: Optional[str] = None,
         include_urns: Optional[Set[DatasetUrn]] = None,
         include_column_lineage: bool = True,
+        custom_keys: Optional[Dict[str, str]] = None, # pass custom keys to lineage
     ) -> Iterable[MetadataWorkUnit]:
         """Process a single query and yield any generated workunits.
 
@@ -153,6 +161,8 @@ class SqlParsingBuilder:
                     query_timestamp=query_timestamp,
                     is_view_ddl=is_view_ddl,
                     user=user,
+                    query=query,  # Pass the query to the lineage data
+                    custom_keys=custom_keys, # Pass the custom keys to the lineag data
                 )
 
         if self.generate_usage_statistics and query_timestamp is not None:
@@ -241,6 +251,8 @@ def _merge_lineage_data(
     query_timestamp: Optional[datetime],
     is_view_ddl: bool,
     user: Optional[UserUrn],
+    query: Optional[str] = None,  # Add query parameter
+    custom_keys: Optional[Dict[str, str]] = None, # Add custom keys parameter
 ) -> Dict[str, LineageEdge]:
     for upstream_urn in upstream_urns:
         edge = upstream_edges.setdefault(
@@ -255,6 +267,8 @@ def _merge_lineage_data(
                     if is_view_ddl
                     else DatasetLineageTypeClass.TRANSFORMED
                 ),
+                query=query,  # Set the query
+                custom_keys=custom_keys # Set the custom keys
             ),
         )
         if query_timestamp and (  # Use the most recent query
@@ -263,6 +277,8 @@ def _merge_lineage_data(
             edge.audit_stamp = query_timestamp
             if user:
                 edge.actor = user
+        edge.query = query  # Update the query
+        edge.custom_keys = custom_keys # Update the custom keys
 
     # Note: Inefficient as we loop through all column_lineage entries for each downstream table
     for cl in column_lineage or []:
@@ -270,8 +286,17 @@ def _merge_lineage_data(
             for upstream_column_info in cl.upstreams:
                 if upstream_column_info.table not in upstream_urns:
                     continue
-                column_map = upstream_edges[upstream_column_info.table].column_map
-                column_map[cl.downstream.column].add(upstream_column_info.column)
+                # column_map = upstream_edges[upstream_column_info.table].column_map
+                # column_map[cl.downstream.column].add(upstream_column_info.column)
+
+                edge = upstream_edges[upstream_column_info.table]
+
+                # Add to column_map
+                edge.column_map[cl.downstream.column].add(upstream_column_info.column)
+
+                # Store logic for the column
+                if cl.logic:
+                    edge.column_logic[cl.downstream.column] = cl.logic
 
     return upstream_edges
 
