@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Iterable, List, Optional, Set
+from typing import Iterable, List, Optional, Set, Dict, Any
 
 from pydantic import Field
 
@@ -178,6 +178,7 @@ class SqlQueriesSource(Source):
             default_db=self.config.default_db,
             default_schema=self.config.default_schema,
         )
+
         if result.debug_info.table_error:
             logger.info(f"Error parsing table lineage, {result.debug_info.table_error}")
             self.report.num_table_parse_failures += 1
@@ -202,6 +203,7 @@ class SqlQueriesSource(Source):
             user=entry.user,
             custom_operation_type=entry.operation_type,
             include_urns=self.urns,
+            custom_keys=entry.custom_keys
         )
 
 
@@ -213,6 +215,7 @@ class QueryEntry:
     operation_type: Optional[str]
     downstream_tables: List[str]
     upstream_tables: List[str]
+    custom_keys: Optional[Dict[str, str]]  # add custom_keys for extended query_file
 
     @classmethod
     def create(
@@ -245,4 +248,5 @@ class QueryEntry:
                 )
                 for table in entry_dict.get("upstream_tables", [])
             ],
+            custom_keys=entry_dict.get("custom_keys", {}), # add custom_keys for extended query_file
         )
