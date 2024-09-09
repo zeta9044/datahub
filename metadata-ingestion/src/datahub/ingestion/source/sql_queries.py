@@ -179,6 +179,9 @@ class SqlQueriesSource(Source):
             default_schema=self.config.default_schema,
         )
 
+        if result.query_type:
+            entry.custom_keys['query_type']= result.query_type.value
+
         if result.debug_info.table_error:
             logger.info(f"Error parsing table lineage, {result.debug_info.table_error}")
             self.report.num_table_parse_failures += 1
