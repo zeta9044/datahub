@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Iterable, List, Optional, Set, Dict, Any
+from typing import Iterable, List, Optional, Set, Dict
 
 from pydantic import Field
 
@@ -181,6 +181,9 @@ class SqlQueriesSource(Source):
 
         if result.query_type:
             entry.custom_keys['query_type']= result.query_type.value
+
+        if result.query_type_props:
+            entry.custom_keys['query_type_props'] = json.dumps(result.query_type_props)
 
         if result.debug_info.table_error:
             logger.info(f"Error parsing table lineage, {result.debug_info.table_error}")
