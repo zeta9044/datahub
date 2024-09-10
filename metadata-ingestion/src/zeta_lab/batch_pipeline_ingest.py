@@ -1,9 +1,11 @@
+from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
+from zeta_lab.source.custom_csv_to_json_converter import CustomCSVToJSONConverter
+from zeta_lab.source.custom_sql_to_json_converter import CustomSQLToJSONConverter
 from zeta_lab.source.custom_sql_queries import CustomSqlQueriesSource  # Ensure this import is done before creating the pipeline
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
 DATAHUB_URL = "http://zeta:8000"
-QTRACK_URL = "http://zeta:8001"
 
 # Define the common sink configuration
 common_sink_config = {
@@ -17,8 +19,8 @@ duckdb_sink_config = {
     "type": "datahub-lite",
     "config": {
         "type": "duckdb",
-        "config":{
-            "file":"D:/zeta/ingest/777.db"
+        "config": {
+            "file": "D:/zeta/ingest/ss.db"
         }
     }
 }
@@ -61,13 +63,13 @@ duckdb_sink_config = {
 
 queries_pipeline_debug_config = {
     "datahub_api": {
-      "server": DATAHUB_URL,
-      "timeout_sec": 60
+        "server": DATAHUB_URL,
+        "timeout_sec": 60
     },
     "source": {
         "type": "sql-queries",
         "config": {
-            "query_file": "D:/zeta/ingest/test.json",
+            "query_file": "D:/zeta/ingest/sql_queries2.json",
             "platform": "snowflake",
             "platform_instance": "na",
             "default_db": "na",
@@ -94,26 +96,26 @@ custom_queries_pipeline_debug_config = {
     },
     "source": {
         "type": "custom-sql-queries",
-                "config": {
-                    "query_file": "D:/zeta/ingest/test.json",
-                    "platform": "snowflake",
-                    "platform_instance": "na",
-                    "default_db": "na",
-                    "default_schema": "na",
-                    "env": "PROD",
-                    "usage": {
-                        "format_sql_queries": "True"
-                    }
-                }
-            },
-            # "sink": {
-            #     "type": "file",
-            #     "config": {
-            #         "filename": "D:/zeta/logs/custom_queries_ingestion.log"
-            #     }
-            # }
+        "config": {
+            "query_file": "D:/zeta/ingest/test.json",
+            "platform": "snowflake",
+            "platform_instance": "na",
+            "default_db": "na",
+            "default_schema": "na",
+            "env": "PROD",
+            "usage": {
+                "format_sql_queries": "True"
+            }
+        }
+    },
+    # "sink": {
+    #     "type": "file",
+    #     "config": {
+    #         "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+    #     }
+    # }
 
-            "sink": duckdb_sink_config
+    "sink": duckdb_sink_config
 
     # "sink": {
     #     "type": "console",
@@ -123,24 +125,108 @@ custom_queries_pipeline_debug_config = {
     # }
 }
 
-# metadata_file_pipeline_config = {
-#     "source": {
-#         "type": "file",
-#         "config": {
-#             "path": "\\\wsl.localhost\\Ubuntu\\home\\zeta\\ingest\\metadata.json",
-#             "file_extension": ".json",
-#             "read_mode": "AUTO"
-#         }
-#     },
-#     "sink": common_sink_config
-# }
+sql_file_pipeline_config = {
+    "source": {
+        "type": "sql_to_json_converter",
+        "config": {
+            "input_path": "D:\\zeta\\engine-samples\\datahub-query",
+            "output_path": "D:/zeta/ingest/sql_queries.json",
+            "dataset_name": "121"
+        }
+    },
+    "sink": {
+        "type": "console",
+        # "config": {
+        #     "filename":"D:/zeta/logs/converter.log"
+        # }
+    }
+}
 
+sqlsrc_file_pipeline_config = {
+    "source": {
+        "type": "custom_csv_to_json_converter",
+        "config": {
+            "input_path": "D:/LIAEngine/repositorys/SmilegateTest/sqlsrc.dat",
+            # "input_path": "D:/zeta/sqlsrc.dat",
+            "output_path": "D:/zeta/ingest/sql_queries.json"
+        }
+    },
+    "sink": {
+        "type": "console",
+        # "config": {
+        #     "filename":"D:/zeta/logs/converter.log"
+        # }
+    }
+}
+
+snowflake_queries_pipeline_debug_config = {
+    "datahub_api": {
+        "server": DATAHUB_URL,
+        "timeout_sec": 60
+    },
+    "source": {
+        "type": "custom-sql-queries",
+        "config": {
+            "query_file": "D:/zeta/ingest/test.json",
+            "platform": "snowflake",
+            "platform_instance": "na",
+            "default_db": "na",
+            "default_schema": "na",
+            "env": "PROD",
+            "usage": {
+                "format_sql_queries": "True"
+            }
+        }
+    },
+    # "sink": {
+    #     "type": "file",
+    #     "config": {
+    #         "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+    #     }
+    # }
+
+    "sink": duckdb_sink_config
+
+    # "sink": {
+    #     "type": "console",
+    #     # "config": {
+    #     #     "filename": "D:/zeta/logs/custom_queries_ingestion.log"
+    #     # }
+    # }
+}
+
+# Define ingestion of converting work from duckdb(metadata) to Postgres(my dbms) configuration
+convert_pipeline_debug_config = {
+    "source": {
+        "type": "convert_qtrack",
+        "config": {
+            "datahub_api": {
+                "server": DATAHUB_URL,
+                "timeout_sec": 60
+            },
+            "duckdb_path": "D:/zeta/ingest/ss.db",
+            "target_config": {
+                "type": "postgres",
+                "host_port": "zeta:5432",
+                "database": "postgres",
+                "username": "dlusr",
+                "password": "dlusr"
+            }
+        }
+    },
+    "sink": {
+        "type": "console",
+    }
+}
 
 # Define a list of pipeline configurations
 # pipeline_configs = [postgres_pipeline_config, queries_pipeline_config]
-# pipeline_configs = [queries_pipeline_debug_config]
-pipeline_configs = [custom_queries_pipeline_debug_config,queries_pipeline_debug_config]
-# pipeline_configs = [metadata_file_pipeline_config]
+pipeline_configs = [queries_pipeline_debug_config]
+# pipeline_configs = [snowflake_queries_pipeline_debug_config,queries_pipeline_debug_config]
+# pipeline_configs = [sql_file_pipeline_config]
+# pipeline_configs = [sqlsrc_file_pipeline_config]
+pipeline_configs = [queries_pipeline_debug_config,convert_pipeline_debug_config]
+
 
 # Extract function to run pipeline
 def run_pipeline(config):

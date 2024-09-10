@@ -333,8 +333,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             "systemMetadata": json.loads(result[1]) if result[1] else None
         }
     except Exception as e:
-        logging.error(f"Error in get_aspect: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.info(f"not found in get_aspect : {e}")
 
 
 @app.post("/usageStats")

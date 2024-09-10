@@ -249,3 +249,45 @@ def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
         raise ValueError(f"Unsupported native data type: {native_data_type}")
 
     return SchemaFieldDataTypeClass(type=type_class())
+
+class NameUtil:
+    @staticmethod
+    def get_platform_instance(input_string):
+        parts = input_string.split('.')
+        return parts[-4]
+
+    @staticmethod
+    def get_db_name(input_string):
+        parts = input_string.split('.')
+        return parts[-3]
+
+    @staticmethod
+    def get_schema(input_string):
+        parts = input_string.split('.')
+        return parts[-2]
+
+    @staticmethod
+    def get_table_name(input_string):
+        parts = input_string.split('.')
+        return parts[-1]
+
+    @staticmethod
+    def get_unique_owner_name(input_string):
+        # DB명과 스키마를 추출하여 결합
+        parts = input_string.split('.')
+        return f"{parts[-3]}.{parts[-2]}"
+
+    @staticmethod
+    def get_unique_owner_tgt_srv_id(input_string):
+        # 마지막 부분(테이블명) 제외하고 다시 합치기
+        parts = input_string.split('.')
+        return '.'.join(parts[:-1]).upper()
+
+def get_owner_srv_id(props):
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
+
+def get_system_biz_id(props):
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
+
