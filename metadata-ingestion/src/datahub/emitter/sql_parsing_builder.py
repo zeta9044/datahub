@@ -297,9 +297,14 @@ def _merge_lineage_data(
                 edge.column_map[cl.downstream.column].add(upstream_column_info.column)
 
                 # Store logic for the column
-                if cl.logic:
-                    parsed = sqlglot.parse_one(cl.logic)
-                    edge.column_logic[cl.downstream.column] = str(parsed.this)
+                try:
+                    if cl.logic:
+                        parsed = sqlglot.parse_one(cl.logic)
+                        edge.column_logic[cl.downstream.column] = str(parsed.this)
+                    else:
+                        edge.column_logic[cl.downstream.column] = ''
+                except Exception:
+                    edge.column_logic[cl.downstream.column] = ''
 
     return upstream_edges
 
