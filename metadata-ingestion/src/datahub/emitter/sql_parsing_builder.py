@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Collection, Dict, Iterable, List, Optional, Set
 
+import sqlglot
+
 from datahub.emitter.mce_builder import make_schema_field_urn
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.workunit import MetadataWorkUnit
@@ -296,7 +298,8 @@ def _merge_lineage_data(
 
                 # Store logic for the column
                 if cl.logic:
-                    edge.column_logic[cl.downstream.column] = cl.logic
+                    parsed = sqlglot.parse_one(cl.logic)
+                    edge.column_logic[cl.downstream.column] = str(parsed.this)
 
     return upstream_edges
 
