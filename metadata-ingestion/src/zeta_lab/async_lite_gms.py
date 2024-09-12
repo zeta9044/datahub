@@ -324,7 +324,9 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         ''', (urn, aspect, version)).fetchone()
 
         if not result:
-            raise HTTPException(status_code=404, detail="Aspect not found")
+            message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
+            logging.warning(message)
+            raise HTTPException(status_code=404, detail=message)
 
         return {
             "aspect": {
@@ -332,8 +334,11 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             },
             "systemMetadata": json.loads(result[1]) if result[1] else None
         }
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logging.info(f"not found in get_aspect : {e}")
+        logging.error(f"Error in get_aspect: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
 @app.post("/usageStats")
