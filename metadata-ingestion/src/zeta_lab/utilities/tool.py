@@ -281,7 +281,7 @@ class NameUtil:
     def get_unique_owner_tgt_srv_id(input_string):
         # 마지막 부분(테이블명) 제외하고 다시 합치기
         parts = input_string.split('.')
-        return '.'.join(parts[:-1]).upper()
+        return '.'.join(parts[:-1])
 
 def get_owner_srv_id(props):
     # If "customProperties" is missing or empty, return "[owner_undefined]"
