@@ -284,10 +284,16 @@ class NameUtil:
         return '.'.join(parts[:-1])
 
 def get_owner_srv_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "[owner_undefined]"
     # If "customProperties" is missing or empty, return "[owner_undefined]"
     return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
 
 def get_system_biz_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "[owner_undefined]"
     # If "customProperties" is missing or empty, return "[owner_undefined]"
     return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
 

@@ -20,7 +20,7 @@ duckdb_sink_config = {
     "config": {
         "type": "duckdb",
         "config": {
-            "file": "D:/zeta/ingest/ss.db"
+            "file": "D:/zeta/ingest/sss.db"
         }
     }
 }
@@ -204,7 +204,7 @@ convert_pipeline_debug_config = {
                 "server": DATAHUB_URL,
                 "timeout_sec": 60
             },
-            "duckdb_path": "D:/zeta/ingest/ss.db",
+            "duckdb_path": "D:/zeta/ingest/sss.db",
             "target_config": {
                 "type": "postgres",
                 "host_port": "zeta:5432",
