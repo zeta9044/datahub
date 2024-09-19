@@ -1,11 +1,10 @@
 import asyncio
-import psycopg2
-import psycopg2.extras
 import logging
 from typing import List, Dict, Iterable, Tuple, Any
 
 import duckdb
 import psycopg2
+import psycopg2.extras
 import requests
 from psycopg2 import pool
 
@@ -16,7 +15,6 @@ from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_init_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import get_system_biz_id, NameUtil
-from zeta_lab.utilities import qtrack_duckdb_operations
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
