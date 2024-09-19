@@ -1,6 +1,8 @@
 import asyncio
+import psycopg2
+import psycopg2.extras
 import logging
-from typing import List, Dict, Iterable, Tuple
+from typing import List, Dict, Iterable, Tuple, Any
 
 import duckdb
 import psycopg2
@@ -14,6 +16,7 @@ from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_init_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import get_system_biz_id, NameUtil
+from zeta_lab.utilities import qtrack_duckdb_operations
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -75,6 +78,11 @@ class ConvertQtrackSource(Source):
             self.process_lineage(downstream, metadata)
 
         logger.info(f"Processed {len(results)} lineage records")
+
+        # After processing all lineage records
+        logger.info("Starting asynchronous transfer to PostgreSQL")
+        asyncio.run(self.transfer_to_postgresql())
+
         return []
 
     def process_lineage(self, downstream: str, metadata: Dict) -> None:
@@ -130,14 +138,17 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             logger.error(f"Error inserting into ais0112: {e}")
 
-    def populate_ais0113(self, upstream_urn: str, downstream_urn: str, fine_grained_lineages: List[Dict], query_custom_keys: Dict) -> None:
+    def populate_ais0113(self, upstream_urn: str, downstream_urn: str, fine_grained_lineages: List[Dict],
+                         query_custom_keys: Dict) -> None:
         # 컬럼 순서 초기화
         self.column_order = {upstream_urn: 0, downstream_urn: 0}
 
         if not fine_grained_lineages:
             # 가상 '*' 컬럼 처리
-            upstream_data = self.get_ais0103_data(upstream_urn, f"urn:li:schemaField:({upstream_urn},*)", query_custom_keys)
-            downstream_data = self.get_ais0103_data(downstream_urn, f"urn:li:schemaField:({downstream_urn},*)", query_custom_keys)
+            upstream_data = self.get_ais0103_data(upstream_urn, f"urn:li:schemaField:({upstream_urn},*)",
+                                                  query_custom_keys)
+            downstream_data = self.get_ais0103_data(downstream_urn, f"urn:li:schemaField:({downstream_urn},*)",
+                                                    query_custom_keys)
 
             if upstream_data and downstream_data:
                 self.insert_ais0113_record(upstream_data, downstream_data, '', upstream_urn, downstream_urn)
@@ -153,9 +164,11 @@ class ConvertQtrackSource(Source):
                         downstream_data = self.get_ais0103_data(downstream_urn, downstream_col, query_custom_keys)
 
                         if upstream_data and downstream_data:
-                            self.insert_ais0113_record(upstream_data, downstream_data, transform_operation, upstream_urn, downstream_urn)
+                            self.insert_ais0113_record(upstream_data, downstream_data, transform_operation,
+                                                       upstream_urn, downstream_urn)
 
-    def insert_ais0113_record(self, upstream_data: Tuple, downstream_data: Tuple, transform_operation: str, upstream_urn: str, downstream_urn: str):
+    def insert_ais0113_record(self, upstream_data: Tuple, downstream_data: Tuple, transform_operation: str,
+                              upstream_urn: str, downstream_urn: str):
         try:
             # 컬럼 순서 가져오기
             col_order_no = self.get_next_column_order(upstream_urn)
@@ -438,12 +451,116 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             logger.error(f"Error creating virtual column lineage: {e}")
 
+    async def transfer_to_postgresql(self):
+        logger.info("Starting asynchronous batch transfer to PostgreSQL")
+
+        try:
+            # Transfer ais0112
+            await self.transfer_table('ais0112')
+
+            # Transfer ais0113
+            await self.transfer_table('ais0113')
+
+        except Exception as e:
+            logger.error(f"Error during transfer to PostgreSQL: {e}")
+
+        logger.info("Completed asynchronous batch transfer to PostgreSQL")
+
+    async def transfer_table(self, table_name: str):
+        logger.info(f"Transferring {table_name} to PostgreSQL")
+
+        # Get total count
+        total_count = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+
+        # Get column information
+        columns_info = self.get_columns_info(table_name)
+
+        offset = 0
+        sem = asyncio.Semaphore(self.max_workers)
+        tasks = []
+
+        while offset < total_count:
+            # Fetch batch from DuckDB
+            query = f"SELECT * FROM {table_name} LIMIT {self.batch_size} OFFSET {offset}"
+            batch = self.duckdb_conn.execute(query).fetchall()
+
+            if not batch:
+                break
+
+            # Create and start task for batch insert
+            task = asyncio.create_task(self.insert_batch(sem, table_name, columns_info, batch))
+            tasks.append(task)
+
+            offset += self.batch_size
+            logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
+
+    def get_columns_info(self, table_name: str) -> List[Tuple[str, Any]]:
+        query = f"DESCRIBE {table_name}"
+        columns_info = self.duckdb_conn.execute(query).fetchall()
+        return [(col[0], col[1]) for col in columns_info]
+
+    async def insert_batch(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
+        async with sem:
+            # Prepare INSERT statement with appropriate placeholders
+            columns = [col[0] for col in columns_info]
+            placeholders = [self.get_placeholder(col[1]) for col in columns_info]
+            insert_query = f"""
+                INSERT INTO {table_name} ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                ON CONFLICT DO NOTHING
+            """
+
+            # Convert batch data according to column types
+            converted_batch = [self.convert_row(row, columns_info) for row in batch]
+
+            conn = await asyncio.to_thread(self.pg_pool.getconn)
+            try:
+                cur = await asyncio.to_thread(conn.cursor)
+                try:
+                    await asyncio.to_thread(
+                        psycopg2.extras.execute_batch,
+                        cur, insert_query, converted_batch, page_size=100
+                    )
+                    await asyncio.to_thread(conn.commit)
+                    logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                finally:
+                    await asyncio.to_thread(cur.close)
+            except Exception as e:
+                await asyncio.to_thread(conn.rollback)
+                logger.error(f"Error inserting batch into {table_name}: {e}")
+            finally:
+                await asyncio.to_thread(self.pg_pool.putconn, conn)
+
+    def get_placeholder(self, col_type: str) -> str:
+        if 'INTEGER' in col_type.upper() or 'NUMERIC' in col_type.upper() or 'DECIMAL' in col_type.upper() or 'FLOAT' in col_type.upper():
+            return '%s::numeric'
+        else:
+            return '%s'
+
+    def convert_row(self, row: Tuple, columns_info: List[Tuple[str, Any]]) -> Tuple:
+        converted_row = []
+        for value, (_, col_type) in zip(row, columns_info):
+            if value == '' or value is None:
+                converted_row.append(None)
+            elif 'INTEGER' in col_type.upper():
+                converted_row.append(int(value) if value is not None else None)
+            elif 'NUMERIC' in col_type.upper() or 'DECIMAL' in col_type.upper() or 'FLOAT' in col_type.upper():
+                converted_row.append(float(value) if value is not None else None)
+            elif 'BOOLEAN' in col_type.upper():
+                converted_row.append(bool(value) if value is not None else None)
+            else:
+                converted_row.append(str(value))
+        return tuple(converted_row)
+
     def get_postgres_pool(self):
         logger.info("Creating PostgreSQL connection pool")
         pg_config = self.config['target_config']
         try:
             pool = psycopg2.pool.SimpleConnectionPool(
-                1, 20,
+                1, 10,
                 host=pg_config['host_port'].split(':')[0],
                 port=pg_config['host_port'].split(':')[1],
                 database=pg_config['database'],
