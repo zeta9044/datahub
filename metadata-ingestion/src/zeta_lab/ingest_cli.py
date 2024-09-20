@@ -22,39 +22,78 @@ config: Dict[str, Any] = {
     "port": 8000
 }
 
+
 def get_base_path():
     """
-    :return: The base path of the application. If the application is bundled using PyInstaller, it returns the path to the bundled directory. Otherwise, it returns the directory path of the current script file.
+    :return: Returns the base path of the application. If the application
+        is running as a bundled executable, it returns the path to the
+        bundled data. Otherwise, it returns the directory in which the
+        current script resides.
     """
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
 
-def load_config():
-    """
-    Loads the configuration settings from a JSON file and updates the global config.
 
-    :return: None
+def find_config_file(base_path):
+    """Find the configuration file."""
+    possible_names = ['meta_config.json', 'config.json']
+    for name in possible_names:
+        path = os.path.join(base_path, name)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def load_config(ctx, config_file=None):
+    """
+    :param ctx: Context object that holds configuration and other contextual data
+    :param config_file: Optional path to the configuration file. If not provided, it will be determined based on the context or environment variables.
+    :return: The context object with updated configuration settings
     """
     global config
-    config_path = os.path.join(get_base_path(), 'config.json')
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
+    base_path = get_base_path()
+
+    if config_file is None:
+        config_file = ctx.obj.get('config_file') or os.environ.get('META_CONFIG_FILE')
+
+    if config_file is None:
+        config_file = find_config_file(base_path)
+
+    if config_file and os.path.exists(config_file):
+        with open(config_file, 'r') as f:
             loaded_config = json.load(f)
             if 'log_level' in loaded_config:
                 loaded_config['log_level'] = loaded_config['log_level'].upper()
             config.update(loaded_config)
+        logging.info(f"Loaded configuration from {config_file}")
+    else:
+        logging.warning("Configuration file not found. Using default settings.")
+
+    ctx.obj['config_file'] = config_file
+    ctx.obj['config'] = config
 
 
-def save_config():
+def save_config(ctx):
     """
-    Saves the current configuration to a JSON file.
-
+    :param ctx: Context object containing configuration details and environment settings.
     :return: None
     """
-    config_path = os.path.join(get_base_path(), 'config.json')
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
+    config_file = ctx.obj.get('config_file')
+
+    if config_file is None:
+        config_file = os.environ.get('META_CONFIG_FILE')
+
+    if config_file is None:
+        config_file = find_config_file(get_base_path())
+
+    if config_file is None:
+        config_file = os.path.join(get_base_path(), 'meta_config.json')
+
+    with open(config_file, 'w') as f:
+        json.dump(ctx.obj['config'], f, indent=2)
+    logging.info(f"Saved configuration to {config_file}")
+
 
 def get_server_pid():
     """
@@ -67,19 +106,22 @@ def get_server_pid():
             return proc.info['pid']
     return None
 
+
 @click.group()
+@click.option('--config-file', type=click.Path(exists=True), help="Path to the configuration file")
 @click.pass_context
-def cli(ctx):
+def cli(ctx, config_file):
     """Ingestion CLI for managing the server and other operations."""
     ctx.ensure_object(dict)
-    load_config()
-    ctx.obj['config'] = config
+    load_config(ctx, config_file)
+
 
 @cli.group()
 @click.pass_context
 def meta(ctx):
     """Commands for managing the server metadata."""
     pass
+
 
 def find_executable(base_path):
     """Find the appropriate executable or script."""
@@ -89,6 +131,7 @@ def find_executable(base_path):
         if os.path.exists(path):
             return path
     return None
+
 
 @meta.command()
 @click.pass_context
@@ -138,6 +181,7 @@ def start(ctx):
         click.echo(f"Error starting server: {str(e)}")
         logging.error(f"Error starting server: {str(e)}")
 
+
 @meta.command()
 @click.pass_context
 def stop(ctx):
@@ -158,6 +202,7 @@ def stop(ctx):
         click.echo(f"Failed to stop the server. Error: {str(e)}")
         logging.error(f"Failed to stop the server. Error: {str(e)}")
 
+
 @meta.command()
 @click.pass_context
 def restart(ctx):
@@ -165,6 +210,7 @@ def restart(ctx):
     ctx.invoke(stop)
     time.sleep(2)
     ctx.invoke(start)
+
 
 @meta.command()
 @click.pass_context
@@ -210,6 +256,7 @@ def logs(ctx):
         click.echo("Stopped showing logs.")
         logging.debug("Stopped showing logs")
 
+
 @meta.command()
 @click.pass_context
 def status(ctx):
@@ -231,6 +278,7 @@ def status(ctx):
         click.echo(f"Server is running (PID: {pid}), but health check failed to connect. Error: {str(e)}")
         logging.error(f"Health check failed. Error: {str(e)}")
 
+
 @meta.command()
 @click.pass_context
 def settings(ctx):
@@ -238,6 +286,7 @@ def settings(ctx):
     click.echo("Current settings:")
     for key, value in ctx.obj['config'].items():
         click.echo(f"{key}: {value}")
+
 
 @meta.command()
 @click.pass_context
@@ -261,9 +310,10 @@ def reset(ctx):
         if new_value:
             ctx.obj['config'][key] = new_value
 
-    save_config()
+    save_config(ctx)
     click.echo("Settings updated. Restarting server...")
     ctx.invoke(restart)
+
 
 if __name__ == "__main__":
     cli(obj={})
