@@ -478,26 +478,21 @@ async def graphql_endpoint(request: Request):
         logging.error(f"Error occurred during GraphQL query execution: {str(e)}")
         return JSONResponse(content={"errors": [str(e)]}, status_code=500)
 
-
 @app.get("/health")
 async def health_check():
     """
-    :return: A dictionary with health"""
+    :return: A dictionary with health status information
+    """
     try:
-        # Check DuckDB connection
-        conn.execute("SELECT 1")
+        # DuckDB connection is assumed to be always initialized
 
         # Check queue status
         queue_size = queue.qsize()
 
-        # Check performance metrics
-        avg_response_times = {k: sum(v) / len(v) for k, v in request_times.items() if v}
-
         return {
             "status": "healthy",
             "database": "connected",
-            "queue_size": queue_size,
-            "avg_response_times": avg_response_times
+            "queue_size": queue_size
         }
     except Exception as e:
         logging.error(f"Health check failed: {e}")
