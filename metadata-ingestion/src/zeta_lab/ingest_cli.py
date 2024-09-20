@@ -38,10 +38,21 @@ def get_base_path():
 def find_config_file(base_path):
     """Find the configuration file."""
     possible_names = ['meta_config.json', 'config.json']
-    for name in possible_names:
-        path = os.path.join(base_path, name)
-        if os.path.exists(path):
+    search_paths = [
+        os.environ.get('META_CONFIG_FILE'),  # Check environment variable for config file path
+        base_path,
+        os.getcwd(),  # Current working directory
+        getattr(sys, '_MEIPASS', None),  # PyInstaller's temporary directory
+    ]
+    for path in search_paths:
+        if path is None:
+            continue
+        if os.path.isfile(path):  # If the environment variable points directly to a file
             return path
+        for name in possible_names:
+            full_path = os.path.join(path, name)
+            if os.path.exists(full_path):
+                return full_path
     return None
 
 
