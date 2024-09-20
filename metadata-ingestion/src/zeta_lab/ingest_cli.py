@@ -23,11 +23,19 @@ config: Dict[str, Any] = {
 }
 
 def get_base_path():
+    """
+    :return: The base path of the application. If the application is bundled using PyInstaller, it returns the path to the bundled directory. Otherwise, it returns the directory path of the current script file.
+    """
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
 
 def load_config():
+    """
+    Loads the configuration settings from a JSON file and updates the global config.
+
+    :return: None
+    """
     global config
     config_path = os.path.join(get_base_path(), 'config.json')
     if os.path.exists(config_path):
@@ -39,11 +47,19 @@ def load_config():
 
 
 def save_config():
+    """
+    Saves the current configuration to a JSON file.
+
+    :return: None
+    """
     config_path = os.path.join(get_base_path(), 'config.json')
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
 
 def get_server_pid():
+    """
+    :return: The process ID (PID) of the server running 'async_lite_gms.py' or 'async_lite_gms', or None if no such server process is found.
+    """
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         if 'python' in proc.info['name'].lower() and 'async_lite_gms.py' in ' '.join(proc.info['cmdline']):
             return proc.info['pid']
