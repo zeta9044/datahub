@@ -126,10 +126,21 @@ def meta(ctx):
 def find_executable(base_path):
     """Find the appropriate executable or script."""
     possible_names = ['async_lite_gms', 'async_lite_gms.exe', 'async_lite_gms.py']
-    for name in possible_names:
-        path = os.path.join(base_path, name)
-        if os.path.exists(path):
+    search_paths = [
+        os.environ.get('ASYNC_LITE_GMS_PATH'),  # 환경 변수에서 경로 확인
+        base_path,
+        os.getcwd(),  # 현재 작업 디렉토리
+        getattr(sys, '_MEIPASS', None),  # PyInstaller의 임시 디렉토리
+    ]
+    for path in search_paths:
+        if path is None:
+            continue
+        if os.path.isfile(path):  # 환경 변수가 직접 실행 파일을 가리키는 경우
             return path
+        for name in possible_names:
+            full_path = os.path.join(path, name)
+            if os.path.exists(full_path):
+                return full_path
     return None
 
 
@@ -146,7 +157,8 @@ def start(ctx):
     exec_path = find_executable(base_path)
 
     if not exec_path:
-        click.echo(f"Error: async_lite_gms executable or script not found in {base_path}")
+        click.echo("Error: async_lite_gms executable or script not found. Please ensure it's in the same directory, "
+                   "set the ASYNC_LITE_GMS_PATH environment variable, or use --add-data with PyInstaller.")
         return
 
     cmd = [

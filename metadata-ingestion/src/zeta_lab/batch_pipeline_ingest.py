@@ -1,7 +1,4 @@
 from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
-from zeta_lab.source.custom_csv_to_json_converter import CustomCSVToJSONConverter
-from zeta_lab.source.custom_sql_to_json_converter import CustomSQLToJSONConverter
-from zeta_lab.source.custom_sql_queries import CustomSqlQueriesSource  # Ensure this import is done before creating the pipeline
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Extract URL as a constant
