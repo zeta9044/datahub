@@ -494,7 +494,8 @@ async def health_check():
         for k, v in request_times.items():
             if v:
                 # Ensure all values are numbers before calculating average
-                numeric_values = [float(time) for time in v if isinstance(time, (int, float, str)) and str(time).replace('.', '').isdigit()]
+                numeric_values = [float(time) for time in v if
+                                  isinstance(time, (int, float, str)) and str(time).replace('.', '').isdigit()]
                 if numeric_values:
                     avg_response_times[k] = sum(numeric_values) / len(numeric_values)
 
@@ -515,53 +516,6 @@ async def health_check():
         )
 
 
-def load_config():
-    """
-    Load the configuration from a JSON file if it exists.
-
-    :return: A dictionary containing the configuration, or None if the file doesn't exist.
-    """
-    if os.path.exists("../config/meta_config.json"):
-        config_path = "../config/meta_config.json"
-    elif os.path.exists("meta_config.json"):
-        config_path = "meta_config.json"
-    else:
-        return None
-
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-
-    logging.info(f"Configuration loaded from {config_path}")
-    return config
-
-
-def save_config(log_file, db_file, log_level, port):
-    """
-    Save the configuration to a JSON file.
-
-    :param log_file: Path to log file
-    :param db_file: Path to DuckDB database file
-    :param log_level: Logging level
-    :param port: Port to run the server on
-    """
-    config = {
-        "log_file": log_file,
-        "db_file": db_file,
-        "log_level": log_level,
-        "port": port
-    }
-
-    if os.path.exists("../config"):
-        config_path = os.path.join("../config", "meta_config.json")
-    else:
-        config_path = "meta_config.json"
-
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=4)
-
-    logging.info(f"Configuration saved to {config_path}")
-
-
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
 @click.option('--db-file', default='meta.db', help='Path to DuckDB database file')
@@ -577,16 +531,6 @@ def main(log_file, db_file, log_level, port):
     :param log_level: Logging level
     :param port: Port to run the server on
     """
-    # Load existing configuration if available
-    config = load_config()
-    if config:
-        log_file = config.get('log_file', log_file)
-        db_file = config.get('db_file', db_file)
-        log_level = config.get('log_level', log_level)
-        port = config.get('port', port)
-
-    # Save the configuration (this will update the file if it already exists)
-    save_config(log_file, db_file, log_level, port)
 
     # Logging setup
     logging.basicConfig(

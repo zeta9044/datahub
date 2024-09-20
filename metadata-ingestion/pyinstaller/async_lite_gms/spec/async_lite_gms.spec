@@ -3,12 +3,37 @@
 from PyInstaller.building.api import PYZ, EXE, COLLECT
 from PyInstaller.building.build_main import Analysis
 import os
+import sys
 
-# Define the paths
-zeta_lab_path = 'C:\\git\\datahub\\metadata-ingestion\\src\\zeta_lab'
-datahub_path = 'C:\\git\\datahub\\metadata-ingestion\\src\\datahub'
+# 플랫폼 감지
+is_windows = sys.platform.startswith('win')
 
-a = Analysis(['C:\\git\\datahub\\metadata-ingestion\\src\\zeta_lab\\async_lite_gms.py'],
+# 현재 작업 디렉토리를 기준으로 경로 설정
+base_path = os.getcwd()
+
+# 가능한 경로들을 리스트로 정의
+possible_paths = [
+    os.path.join(base_path, 'src', 'zeta_lab'),
+    os.path.join(base_path, 'metadata-ingestion', 'src', 'zeta_lab'),
+    os.path.join(base_path, '..', 'src', 'zeta_lab'),
+    os.path.join(base_path, '..', '..', 'src', 'zeta_lab'),
+]
+
+# zeta_lab_path 찾기
+zeta_lab_path = next((path for path in possible_paths if os.path.exists(path)), None)
+
+if zeta_lab_path is None:
+    raise FileNotFoundError("zeta_lab 디렉토리를 찾을 수 없습니다.")
+
+datahub_path = os.path.join(os.path.dirname(zeta_lab_path), 'datahub')
+
+# 메인 스크립트 경로
+main_script = os.path.join(zeta_lab_path, 'async_lite_gms.py')
+
+if not os.path.exists(main_script):
+    raise FileNotFoundError(f"메인 스크립트를 찾을 수 없습니다: {main_script}")
+
+a = Analysis([main_script],
              pathex=[zeta_lab_path, datahub_path],
              binaries=[],
              datas=[
@@ -25,6 +50,9 @@ a = Analysis(['C:\\git\\datahub\\metadata-ingestion\\src\\zeta_lab\\async_lite_g
              noarchive=False)
 
 pyz = PYZ(a.pure, a.zipped_data)
+
+# 아이콘 경로 설정 (Windows에서만 사용)
+icon_path = os.path.join(base_path, 'pyinstaller', 'async_lite_gms', 'spec', 'async_lite_gms.ico') if is_windows else None
 
 exe = EXE(pyz,
           a.scripts,
@@ -44,4 +72,9 @@ exe = EXE(pyz,
           target_arch=None,
           codesign_identity=None,
           entitlements_file=None,
-          icon='C:\\git\\datahub\\metadata-ingestion\\pyinstaller\\async_lite_gms\\spec\\async_lite_gms.ico')
+          icon=icon_path)
+
+print(f"Base path: {base_path}")
+print(f"Zeta lab path: {zeta_lab_path}")
+print(f"Datahub path: {datahub_path}")
+print(f"Main script path: {main_script}")
