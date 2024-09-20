@@ -22,24 +22,32 @@ config: Dict[str, Any] = {
     "port": 8000
 }
 
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
 def load_config():
     global config
-    if os.path.exists('config.json'):
-        with open('config.json', 'r') as f:
+    config_path = os.path.join(get_base_path(), 'config.json')
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
             loaded_config = json.load(f)
-            # 로그 레벨을 대문자로 변환
             if 'log_level' in loaded_config:
                 loaded_config['log_level'] = loaded_config['log_level'].upper()
             config.update(loaded_config)
 
 
 def save_config():
-    with open('config.json', 'w') as f:
+    config_path = os.path.join(get_base_path(), 'config.json')
+    with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
 
 def get_server_pid():
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         if 'python' in proc.info['name'].lower() and 'async_lite_gms.py' in ' '.join(proc.info['cmdline']):
+            return proc.info['pid']
+        elif 'async_lite_gms' in proc.info['name'].lower():
             return proc.info['pid']
     return None
 
@@ -57,6 +65,15 @@ def meta(ctx):
     """Commands for managing the server metadata."""
     pass
 
+def find_executable(base_path):
+    """Find the appropriate executable or script."""
+    possible_names = ['async_lite_gms', 'async_lite_gms.exe', 'async_lite_gms.py']
+    for name in possible_names:
+        path = os.path.join(base_path, name)
+        if os.path.exists(path):
+            return path
+    return None
+
 @meta.command()
 @click.pass_context
 def start(ctx):
@@ -66,8 +83,15 @@ def start(ctx):
         click.echo(f"Server is already running (PID: {pid})")
         return
 
+    base_path = get_base_path()
+    exec_path = find_executable(base_path)
+
+    if not exec_path:
+        click.echo(f"Error: async_lite_gms executable or script not found in {base_path}")
+        return
+
     cmd = [
-        sys.executable, "async_lite_gms.py",
+        exec_path,
         "--log-file", ctx.obj['config']['log_file'],
         "--db-file", ctx.obj['config']['db_file'],
         "--log-level", ctx.obj['config']['log_level'],
@@ -76,9 +100,13 @@ def start(ctx):
 
     try:
         if sys.platform == 'win32':
+            if exec_path.endswith('.py'):
+                cmd.insert(0, sys.executable)
             process = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
+            if exec_path.endswith('.py'):
+                cmd.insert(0, sys.executable)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         time.sleep(2)
