@@ -17,7 +17,7 @@ logging.basicConfig(filename='ingest_cli.log', level=logging.DEBUG,
 # Global variables for configuration
 config: Dict[str, Any] = {
     "log_file": "async_lite_gms.log",
-    "db_file": "meta.db",
+    "db_file": "async_lite_gms.db",
     "log_level": "INFO",
     "port": 8000
 }
