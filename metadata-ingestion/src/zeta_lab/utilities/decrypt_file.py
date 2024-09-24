@@ -4,28 +4,11 @@ from Crypto.Cipher import AES
 import binascii
 
 class DecryptFile:
-    """
-        Class to handle file encryption and decryption using AES algorithm.
-    """
-    def __init__(self):
-        self.session_key = binascii.unhexlify("f4150d4a1ac5708c29e437749045a39a")
-        self.cipher = AES.new(self.session_key, AES.MODE_ECB)
+    SESSION_KEY = binascii.unhexlify("f4150d4a1ac5708c29e437749045a39a")
 
-    def encrypt(self, plain):
-        """
-        :param plain: The plain text string to be encrypted.
-        :return: The encrypted byte string after padding and encryption.
-        """
-        padded = self.pad_byte(plain.encode('utf-8'))
-        return self.cipher.encrypt(padded)
-
-    def decrypt(self, encrypted):
-        """
-        :param encrypted: The encrypted data that needs to be decrypted.
-        :return: The decrypted and unpadded string in UTF-8 format.
-        """
-        decrypted = self.cipher.decrypt(encrypted)
-        return self.unpad_byte(decrypted).decode('utf-8')
+    def __init__(self, home_path=None):
+        self.cipher = AES.new(self.SESSION_KEY, AES.MODE_ECB)
+        self.home_path = home_path or os.environ.get('LIAENG_HOME', '')
 
     @staticmethod
     def pad_byte(src):
@@ -45,108 +28,104 @@ class DecryptFile:
 
     @staticmethod
     def to_hex_string(bytes_arr):
-        return binascii.hexlify(bytes_arr).decode('ascii')
+        return binascii.hexlify(bytes_arr).decode('ascii').lower()
 
-    @classmethod
-    def encrypt_str(cls, val):
+    def encrypt(self, plain):
+        padded = self.pad_byte(plain.encode('utf-8'))
+        return self.cipher.encrypt(padded)
+
+    def decrypt(self, encrypted):
+        decrypted = self.cipher.decrypt(encrypted)
+        return self.unpad_byte(decrypted).decode('utf-8')
+
+    def encrypt_str(self, val):
         if val is None:
             return ""
-        da = cls()
-        encrypt = da.encrypt(val)
-        return cls.to_hex_string(encrypt)
+        encrypt = self.encrypt(val)
+        return self.to_hex_string(encrypt)
 
-    @classmethod
-    def decrypt_str(cls, val):
+    def decrypt_str(self, val):
         if not val:
             return ""
-        da = cls()
-        decrypt = da.decrypt(cls.hex2byte(val))
+        decrypt = self.decrypt(self.hex2byte(val))
         return decrypt
 
-    @staticmethod
-    def encrypt_security(id_str, pw_str):
-        """
-        :param id_str: The ID string to be encrypted.
-        :param pw_str: The password string to be encrypted.
-        :return: None
-        """
-        system_home = os.environ.get('LIAENG_HOME', '')
-        id_encrypted = DecryptFile.encrypt_str(id_str)
-        pw_encrypted = DecryptFile.encrypt_str(pw_str)
+    def encrypt_security(self, id_str, pw_str):
+        id_encrypted = self.encrypt_str(id_str)
+        pw_encrypted = self.encrypt_str(pw_str)
 
-        encryption_id_pw = f"{id_encrypted}\\|{pw_encrypted.strip()}"
-        encryption_id_pw = DecryptFile.encrypt_str(encryption_id_pw)
+        encryption_id_pw = f"{id_encrypted}\\|{pw_encrypted}"
+        encryption_id_pw = self.encrypt_str(encryption_id_pw)
         click.echo(f"ID/Password : {encryption_id_pw}")
 
-        with open(os.path.join(system_home, "config", "security.properties"), "w") as fw:
+        with open(os.path.join(self.home_path, "config", "security.properties"), "w") as fw:
             fw.write(encryption_id_pw)
 
-    @staticmethod
-    def decrypt_security(gubun):
-        """
-        :param gubun: Specifies the type of information to be decrypted. Valid values are "ID" for user ID and "PW" for password.
-        :return: Decrypted user ID or password based on the provided gubun parameter. Returns an empty string if the security file does not exist or if the gubun parameter is invalid.
-        """
-        system_home = os.environ.get('LIAENG_HOME', '')
-        sf_path = os.path.join(system_home, "config", "security.properties")
+    def decrypt_security(self):
+        id_plain, pw_plain = self.get_decrypted_credentials()
+        if id_plain and pw_plain:
+            click.echo(f"Decrypted ID       : {id_plain}")
+            click.echo(f"Decrypted Password : {pw_plain}")
+        else:
+            click.echo("Failed to decrypt credentials")
+
+    @classmethod
+    def get_decrypted_credentials(cls, home_path=None):
+        home_path = home_path or os.environ.get('LIAENG_HOME', '')
+        sf_path = os.path.join(home_path, "config", "security.properties")
 
         if os.path.exists(sf_path):
             with open(sf_path, "r") as bfr:
-                temp = bfr.readline().strip()
-                temp_index = temp.find("\\|")
-                if temp_index == -1:
-                    tmp_id_pw = DecryptFile.decrypt_str(temp)
-                    temp_index = tmp_id_pw.find("\\|")
-                    temp = tmp_id_pw
-                temp_user = temp[:temp_index]
-                temp_password = temp[temp_index+2:]
-
-                if gubun == "ID":
-                    return DecryptFile.decrypt_str(temp_user)
-                elif gubun == "PW":
-                    return DecryptFile.decrypt_str(temp_password)
+                encrypted = bfr.readline().strip()
+                cipher = AES.new(cls.SESSION_KEY, AES.MODE_ECB)
+                decrypted = cls.unpad_byte(cipher.decrypt(cls.hex2byte(encrypted))).decode('utf-8')
+                temp_index = decrypted.find("\\|")
+                if temp_index != -1:
+                    encrypted_id = decrypted[:temp_index]
+                    encrypted_pw = decrypted[temp_index+2:]
+                    decrypted_id = cls.unpad_byte(cipher.decrypt(cls.hex2byte(encrypted_id))).decode('utf-8')
+                    decrypted_pw = cls.unpad_byte(cipher.decrypt(cls.hex2byte(encrypted_pw))).decode('utf-8')
+                    return decrypted_id, decrypted_pw
+                else:
+                    click.echo("Invalid format in security file")
         else:
-            click.echo("Not exist Security File . . .")
-        return ""
+            click.echo("Security file does not exist")
+        return None, None
 
 @click.group()
-def cli():
+@click.option('--home', default=None, help='Path to LIAENG_HOME. If not provided, uses LIAENG_HOME environment variable.')
+@click.pass_context
+def cli(ctx, home):
     """DecryptFile CLI"""
-    pass
+    ctx.obj = DecryptFile(home)
 
 @cli.command()
 @click.argument('id')
 @click.argument('password')
-def encrypt(id, password):
+@click.pass_obj
+def enc(decrypt_file, id, password):
     """Encrypt ID and password"""
     if len(password) > 15:
         click.echo("Please check your password again. Password is too long...(maximum length 15 characters)")
     else:
-        DecryptFile.encrypt_security(id, password)
+        decrypt_file.encrypt_security(id, password)
 
 @cli.command()
-@click.argument('id')
-@click.argument('password')
-def decrypt(id, password):
-    """Decrypt ID and password"""
-    click.echo(f"Input ID       : {id}")
-    click.echo(f"Input Password : {password}")
-    click.echo(f"Dec ID         : {DecryptFile.decrypt_security('ID')}")
-    click.echo(f"Dec Password   : {DecryptFile.decrypt_security('PW')}")
+@click.pass_obj
+def dec(decrypt_file):
+    """Decrypt ID and password from file"""
+    decrypt_file.decrypt_security()
 
 @cli.command()
-@click.argument('value')
-def encrypt_value(value):
-    """Encrypt a single value"""
-    encrypted = DecryptFile.encrypt_str(value)
-    click.echo(f"Encrypted: {encrypted}")
-
-@cli.command()
-@click.argument('value')
-def decrypt_value(value):
-    """Decrypt a single value"""
-    decrypted = DecryptFile.decrypt_str(value)
-    click.echo(f"Decrypted: {decrypted}")
+@click.option('--home', default=None, help='Path to LIAENG_HOME. If not provided, uses LIAENG_HOME environment variable.')
+def get_credentials(home):
+    """Get decrypted ID and password from file"""
+    id_plain, pw_plain = DecryptFile.get_decrypted_credentials(home)
+    if id_plain and pw_plain:
+        click.echo(f"Decrypted ID       : {id_plain}")
+        click.echo(f"Decrypted Password : {pw_plain}")
+    else:
+        click.echo("Failed to get credentials")
 
 if __name__ == "__main__":
     cli()
