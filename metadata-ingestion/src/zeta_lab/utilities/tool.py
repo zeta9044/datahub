@@ -17,6 +17,8 @@ from datahub.metadata.schema_classes import (
     UnionTypeClass,
     RecordTypeClass
 )
+import xml.etree.ElementTree as ET
+from zeta_lab.utilities.decrypt_file import DecryptFile
 
 logger = logging.getLogger(__name__)
 
@@ -297,3 +299,51 @@ def get_system_biz_id(props):
     # If "customProperties" is missing or empty, return "[owner_undefined]"
     return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
 
+def extract_dsn_from_xml_file(service_xml_path, security_properties_path):
+    """
+    Extract PostgreSQL connection information from XML file and security properties,
+    and construct a SQLAlchemy DSN.
+
+    :param service_xml_path: A string representation of the file path to the service XML file.
+    :param security_properties_path: A string representation of the file path to the security properties file.
+    :return: A string containing the SQLAlchemy DSN for PostgreSQL, or None if required information is not found.
+    """
+    try:
+        # Parse the XML file
+        tree = ET.parse(service_xml_path)
+        root = tree.getroot()
+
+        # Find the ResourceParams tag
+        resource_params = root.find('.//ResourceParams[@type="jdbc"]')
+
+        if resource_params is not None:
+            # Extract URL
+            url_element = resource_params.find('url')
+            if url_element is not None and url_element.text:
+                jdbc_url = url_element.text
+                # Ensure it's a PostgreSQL URL
+                if not jdbc_url.startswith('jdbc:postgresql://'):
+                    raise ValueError("The JDBC URL is not for PostgreSQL")
+
+                # Extract host, port, and database from JDBC URL
+                _, _, host_port_db = jdbc_url.partition('://')
+                host_port, _, database = host_port_db.partition('/')
+
+                # Get decrypted credentials
+                username, password = DecryptFile.get_decrypted_credentials(security_properties_path)
+
+                if username and password:
+                    # Construct SQLAlchemy DSN for PostgreSQL
+                    dsn = f"postgresql://{username}:{password}@{host_port}/{database}"
+                    return dsn
+                else:
+                    raise ValueError("Failed to decrypt database credentials")
+            else:
+                raise ValueError("URL not found in the XML file")
+        else:
+            raise ValueError("ResourceParams tag not found in the XML file")
+
+    except ET.ParseError:
+        raise ValueError("Invalid XML file")
+    except Exception as e:
+        raise ValueError(f"Error extracting DSN: {str(e)}")
