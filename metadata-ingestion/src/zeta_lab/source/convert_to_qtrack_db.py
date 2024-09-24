@@ -592,6 +592,5 @@ class ConvertQtrackSource(Source):
 
 # Add this to the source_registry
 from datahub.ingestion.source.source_registry import source_registry
-
-source_registry.register("convert_qtrack", ConvertQtrackSource)
-logger.info("Registered convert_qtrack source")
+source_registry.register("convert_to_qtrack_db", ConvertQtrackSource)
+logger.info("Registered convert_to_qtrack_db source")
