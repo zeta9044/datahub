@@ -1,5 +1,4 @@
 import os
-import xml.etree.ElementTree as ET
 from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
 from zeta_lab.ingest_cli import get_server_pid
 from zeta_lab.utilities.tool import extract_dsn_from_xml_file
