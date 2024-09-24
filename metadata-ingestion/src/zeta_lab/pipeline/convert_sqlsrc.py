@@ -16,13 +16,12 @@ def convert_sqlsrc(prj_id):
         if not os.path.exists(base_path):
             raise ValueError("Repository path does not exist.")
 
-        # file path
+        # sqlsrc.dat path
         input_file = os.path.join(base_path,str(prj_id),'sqlsrc.dat')
         if not os.path.exists(input_file):
             raise ValueError("sqlsrc.dat file does not exist.")
+
         output_file = os.path.join(base_path,str(prj_id),'sqlsrc.json')
-        if not os.path.exists(output_file):
-            raise ValueError("sqlsrc.json file does not exist.")
 
         # pipeline setting
         sqlsrc_file_pipeline_config = {
