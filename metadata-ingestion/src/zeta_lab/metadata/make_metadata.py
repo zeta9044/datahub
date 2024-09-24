@@ -78,7 +78,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
         for row in rows_as_tuples:
             try:
                 conn.execute('''
-                INSERT INTO meta_instance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO meta_instance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', row)
             except duckdb.ConstraintException as e:
                 if "Constraint Error: Duplicate key" in str(e):
@@ -170,7 +170,7 @@ def transfer_metadata(pg_dsn: str, duckdb_path: str) -> Optional[float]:
 
         # 벌크 삽입을 위한 준비
         insert_query = '''
-        INSERT OR IGNORE INTO qt_meta_populator VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO qt_meta_populator VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
 
         try:
