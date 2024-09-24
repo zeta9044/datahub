@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class CustomCSVToJSONConverterConfig(ConfigModel):
+class SqlsrcToJSONConverterConfig(ConfigModel):
     input_path: str
     output_path: str
 
@@ -26,15 +26,15 @@ class CustomCSVToJSONConverterConfig(ConfigModel):
         return v
 
 
-class CustomCSVToJSONConverter(Source):
-    def __init__(self, config: CustomCSVToJSONConverterConfig, ctx: PipelineContext):
+class SqlsrcToJSONConverter(Source):
+    def __init__(self, config: SqlsrcToJSONConverterConfig, ctx: PipelineContext):
         super().__init__(ctx)
         self.config = config
         self.report = SourceReport()
 
     @classmethod
-    def create(cls, config_dict: Dict, ctx: PipelineContext) -> 'CustomCSVToJSONConverter':
-        config = CustomCSVToJSONConverterConfig.parse_obj(config_dict)
+    def create(cls, config_dict: Dict, ctx: PipelineContext) -> 'SqlsrcToJSONConverter':
+        config = SqlsrcToJSONConverterConfig.parse_obj(config_dict)
         return cls(config, ctx)
 
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
@@ -147,6 +147,5 @@ class CustomCSVToJSONConverter(Source):
 
 # Add this to the source_registry
 from datahub.ingestion.source.source_registry import source_registry
-
-source_registry.register("custom_csv_to_json_converter", CustomCSVToJSONConverter)
-logger.info("Registered custom_csv_to_json_converter source")
+source_registry.register("sqlsrc_to_json_converter", SqlsrcToJSONConverter)
+logger.info("Registered sqlsrc_to_json_converter source")
