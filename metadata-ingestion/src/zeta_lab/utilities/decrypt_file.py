@@ -70,12 +70,12 @@ class DecryptFile:
             click.echo("Failed to decrypt credentials")
 
     @classmethod
-    def get_decrypted_credentials(cls, home_path=None):
-        home_path = home_path or os.environ.get('LIAENG_HOME', '')
-        sf_path = os.path.join(home_path, "config", "security.properties")
+    def get_decrypted_credentials(cls, security_path=None):
+        if not security_path:
+            raise ValueError("Please provide security.properties path")
 
-        if os.path.exists(sf_path):
-            with open(sf_path, "r") as bfr:
+        if os.path.exists(security_path):
+            with open(security_path, "r") as bfr:
                 encrypted = bfr.readline().strip()
                 cipher = AES.new(cls.SESSION_KEY, AES.MODE_ECB)
                 decrypted = cls.unpad_byte(cipher.decrypt(cls.hex2byte(encrypted))).decode('utf-8')
