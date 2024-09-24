@@ -13,14 +13,14 @@ remove_safely() {
 
 # Clean up previous build artifacts while preserving important files
 remove_safely "build/async_lite_gms"
-#remove_safely "dist"
+remove_safely "dist"
 
 # Activate virtual environment and execute commands
 source venv/bin/activate
 
 if [ $? -eq 0 ]; then
     # Generate binary using PyInstaller
-    pyinstaller --clean pyinstaller/async_lite_gms/spec/async_lite_gms.spec
+    pyinstaller --clean pyinstaller/spec/async_lite_gms.spec
 
     if [ $? -eq 0 ]; then
         outputPath="$projectRoot/dist/async_lite_gms"

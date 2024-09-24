@@ -21,7 +21,7 @@ function Remove-ItemSafely {
 }
 
 # Clean up previous build artifacts while preserving important files
-Remove-ItemSafely -Path "build\async_lite_gms"
+Remove-ItemSafely -Path "build\ingest_cli"
 #Remove-ItemSafely -Path "dist"
 
 # Activate virtual environment and execute commands
@@ -29,10 +29,10 @@ Remove-ItemSafely -Path "build\async_lite_gms"
 
 if ($?) {
     # Generate binary using PyInstaller
-    pyinstaller --clean pyinstaller\async_lite_gms\spec\async_lite_gms.spec
+    pyinstaller --clean pyinstaller\spec\ingest_cli.spec
 
     if ($?) {
-        $outputPath = Join-Path -Path $projectRoot -ChildPath "dist\async_lite_gms.exe"
+        $outputPath = Join-Path -Path $projectRoot -ChildPath "dist\ingest_cli.exe"
         Write-Host "Build completed successfully." -ForegroundColor Green
         Write-Host "The final executable is located at:" -ForegroundColor Green
         Write-Host $outputPath -ForegroundColor Cyan
