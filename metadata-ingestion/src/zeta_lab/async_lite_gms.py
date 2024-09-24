@@ -518,7 +518,7 @@ async def health_check():
 
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
-@click.option('--db-file', default='meta.db', help='Path to DuckDB database file')
+@click.option('--db-file', default='async_lite_gms.db', help='Path to DuckDB database file')
 @click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
               help='Logging level')
 @click.option('--port', default=8000, type=int, help='Port to run the server on')
