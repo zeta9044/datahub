@@ -7,11 +7,11 @@ import sys
 import threading
 import time
 from typing import Dict, Any
-
 import click
+import psutil
 
 from zeta_lab.pipeline import ingest_metadata, convert_sqlsrc, extract_lineage, move_lineage
-from zeta_lab.utilities.tool import get_server_pid
+
 
 # 로깅 설정
 logging.basicConfig(filename='ingest_cli.log', level=logging.DEBUG,
@@ -37,6 +37,16 @@ def get_base_path():
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
 
+def get_server_pid():
+    """
+    :return: The process ID (PID) of the server running 'async_lite_gms.py' or 'async_lite_gms', or None if no such server process is found.
+    """
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        if 'python' in proc.info['name'].lower() and 'async_lite_gms.py' in ' '.join(proc.info['cmdline']):
+            return proc.info['pid']
+        elif 'async_lite_gms' in proc.info['name'].lower():
+            return proc.info['pid']
+    return None
 
 def find_config_file(base_path):
     """Find the configuration file."""
