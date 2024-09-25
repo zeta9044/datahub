@@ -7,20 +7,59 @@ import sys
 import threading
 import time
 from typing import Dict, Any
+
 import click
-from zeta_lab.pipeline import ingest_metadata, make_sqlsrc, extract_lineage, move_lineage
-from zeta_lab.utilities.tool import get_server_pid
-from datahub.ingestion.sink.sink_registry import sink_registry
+
+from datahub.ingestion.reporting.datahub_ingestion_run_summary_provider import DatahubIngestionRunSummaryProvider
+from datahub.ingestion.reporting.file_reporter import FileReporter
+from datahub.ingestion.reporting.reporting_provider_registry import reporting_provider_registry
+from datahub.ingestion.source.sql_queries import SqlQueriesSource
 from datahub.ingestion.sink.console import ConsoleSink
 from datahub.ingestion.sink.datahub_lite import DataHubLiteSink
 from datahub.ingestion.sink.datahub_rest import DatahubRestSink
-sink_registry.register("console", ConsoleSink)
-sink_registry.register("datahub-lite", DataHubLiteSink)
-sink_registry.register("datahub-rest", DatahubRestSink)
+from datahub.ingestion.sink.sink_registry import sink_registry
+from datahub.ingestion.source.source_registry import source_registry
+from zeta_lab.pipeline import ingest_metadata, make_sqlsrc, extract_lineage, move_lineage
+from zeta_lab.source.sqlsrc_to_json_converter import SqlsrcToJSONConverter
+from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
+from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
+from zeta_lab.utilities.tool import get_server_pid
 
-# 로깅 설정
-logging.basicConfig(filename='ingest_cli.log', level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def safe_register(registry, name, class_):
+    if name not in registry.mapping:
+        registry.register(name, class_)
+        logger.info(f"Registered {name} in {registry.__class__.__name__}")
+    else:
+        logger.info(f"{name} already registered in {registry.__class__.__name__}")
+
+# Register sources
+safe_register(source_registry, "sql-queries", SqlQueriesSource)
+safe_register(source_registry, "sqlsrc-to-json-converter", SqlsrcToJSONConverter)
+safe_register(source_registry, "convert-to-qtrack-db", ConvertQtrackSource)
+safe_register(source_registry, "qtrack-meta-source", QtrackMetaSource)
+
+# Register sinks
+safe_register(sink_registry, "console", ConsoleSink)
+safe_register(sink_registry, "datahub-lite", DataHubLiteSink)
+safe_register(sink_registry, "datahub-rest", DatahubRestSink)
+
+# Register reporters
+safe_register(reporting_provider_registry, "datahub", DatahubIngestionRunSummaryProvider)
+safe_register(reporting_provider_registry, "file", FileReporter)
+
+# Log all registered components
+def log_registered_components(registry, registry_name):
+    logger.debug(f"Registered {registry_name}:")
+    for name, class_ in registry.mapping.items():
+        logger.debug(f"  {name} -> {class_}")
+
+log_registered_components(source_registry, "sources")
+log_registered_components(sink_registry, "sinks")
+log_registered_components(reporting_provider_registry, "reporters")
 
 # Global variables for configuration
 config: Dict[str, Any] = {
