@@ -1,5 +1,4 @@
 import os
-from zeta_lab.source.sqlsrc_to_json_converter import SqlsrcToJSONConverter
 from datahub.ingestion.run.pipeline import Pipeline
 
 def make_sqlsrc(prj_id):
