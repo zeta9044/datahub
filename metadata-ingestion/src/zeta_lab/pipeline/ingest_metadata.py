@@ -53,7 +53,7 @@ def ingest_metadata(gms_server_url):
         # pipeline setting
         qtrack_meta_pipeline_config = {
             "source": {
-                "type": "qtrack_meta_source",
+                "type": "qtrack-meta-source",
                 "config": {
                     "pg_dsn" : pg_dsn,
                     "duckdb_path": metadata_path,
