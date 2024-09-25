@@ -1,7 +1,6 @@
 import os
 
 from zeta_lab.utilities.tool import extract_db_info,get_server_pid
-from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
 from datahub.ingestion.run.pipeline import Pipeline
 
 def move_lineage(gms_server_url,prj_id):
@@ -56,7 +55,7 @@ def move_lineage(gms_server_url,prj_id):
         # Define ingestion of converting work from duckdb(metadata) to Postgres(my dbms) configuration
         convert_qtrack_pipeline_config = {
             "source": {
-                "type": "convert_to_qtrack_db",
+                "type": "convert-to-qtrack-db",
                 "config": {
                     "datahub_api": {
                         "server": gms_server_url,
