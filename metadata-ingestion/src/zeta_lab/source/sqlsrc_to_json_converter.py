@@ -25,12 +25,33 @@ class SqlsrcToJSONConverterConfig(ConfigModel):
             raise ValueError(f"Input path {v} does not exist")
         return v
 
+class SqlsrcToJSONConverterReport(SourceReport):
+    num_lines_parsed: int = 0
+    num_parse_failures: int = 0
+    num_queries_processed: int = 0
+
+    def report_line_parsed(self, success: bool = True) -> None:
+        self.num_lines_parsed += 1
+        if not success:
+            self.num_parse_failures += 1
+
+    def report_query_processed(self) -> None:
+        self.num_queries_processed += 1
+
+    def compute_stats(self) -> None:
+        super().compute_stats()
+        self.report.report_info("Lines parsed", f"{self.num_lines_parsed}")
+        self.report.report_info("Parse failures", f"{self.num_parse_failures}")
+        self.report.report_info("Queries processed", f"{self.num_queries_processed}")
+        if self.num_lines_parsed > 0:
+            failure_rate = f"{(self.num_parse_failures / self.num_lines_parsed):.2%}"
+            self.report.report_info("Failure rate", failure_rate)
 
 class SqlsrcToJSONConverter(Source):
     def __init__(self, config: SqlsrcToJSONConverterConfig, ctx: PipelineContext):
         super().__init__(ctx)
         self.config = config
-        self.report = SourceReport()
+        self.report = SqlsrcToJSONConverterReport()
 
     @classmethod
     def create(cls, config_dict: Dict, ctx: PipelineContext) -> 'SqlsrcToJSONConverter':
@@ -47,7 +68,7 @@ class SqlsrcToJSONConverter(Source):
 
         return []
 
-    def get_report(self):
+    def get_report(self) -> SqlsrcToJSONConverterReport:
         return self.report
 
     def close(self):
@@ -59,10 +80,6 @@ class SqlsrcToJSONConverter(Source):
     def process_file(self) -> List[Dict[str, Any]]:
         data = []
         selected_columns = ["prjId", "fileId", "objId", "funcId", "sqlId", "sqlSrc", "sqlSrcOrg"]
-        total_lines = 0
-        processed_lines = 0
-        error_lines = 0
-        total_queries = 0
 
         try:
             # Read the file content
@@ -102,30 +119,19 @@ class SqlsrcToJSONConverter(Source):
 
                     full_query = row['sqlSrc'].strip()
                     split_queries = self._split_queries(full_query)
-
+                    self.report.report_line_parsed(success=True)
                     for split_query in split_queries:
                         data.append({
                             "query": split_query,
                             "custom_keys": custom_keys
                         })
-
-                    total_queries += len(split_queries)
-                    processed_lines += 1
-
+                        self.report.report_query_processed()
                 except Exception as e:
-                    error_lines += 1
+                    self.report.report_line_parsed(success=False)
                     self.report.report_warning(
                         f"Error processing line {index + 1}",
                         f"Error: {str(e)}"
                     )
-                    logger.warning(f"Error processing line {index + 1}: {str(e)}")
-
-            self.report.info(
-                "File processing completed",
-                f"Total lines: {total_lines}, Processed lines: {processed_lines}, "
-                f"Error lines: {error_lines}, Total queries: {total_queries}"
-            )
-
             return data
         except Exception as e:
             self.report.report_failure("Failed to read input file", f"Error: {str(e)}")
@@ -145,9 +151,3 @@ class SqlsrcToJSONConverter(Source):
         except Exception as e:
             self.report.report_failure("Failed to write output file", f"Error: {str(e)}")
             logger.exception("An error occurred while writing the output file")
-
-
-# Add this to the source_registry
-from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("sqlsrc-to-json-converter", SqlsrcToJSONConverter)
-logger.debug("Registered sqlsrc-to-json-converter source")
