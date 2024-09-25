@@ -16,7 +16,7 @@ from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_init_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import get_system_biz_id, NameUtil
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -588,9 +588,3 @@ class ConvertQtrackSource(Source):
             logger.info("Closed all PostgreSQL connections")
         except Exception as e:
             logger.error(f"Error closing PostgreSQL connections: {e}")
-
-
-# Add this to the source_registry
-from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("convert_to_qtrack_db", ConvertQtrackSource)
-logger.info("Registered convert_to_qtrack_db source")
