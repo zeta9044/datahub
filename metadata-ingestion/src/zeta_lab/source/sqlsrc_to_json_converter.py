@@ -68,6 +68,8 @@ class SqlsrcToJSONConverter(Source):
             # Read the file content
             with open(self.config.input_path, 'r', encoding='utf-8') as file:
                 content = file.read()
+                if not content:  # content is empty
+                    raise ValueError(f"The file at {self.config.input_path} is empty.")
 
             # Define the delimiter for column of line
             delimiter = b'\x07'.decode('utf-8')

@@ -2,7 +2,7 @@ import os
 from zeta_lab.source.sqlsrc_to_json_converter import SqlsrcToJSONConverter
 from datahub.ingestion.run.pipeline import Pipeline
 
-def convert_sqlsrc(prj_id):
+def make_sqlsrc(prj_id):
     """
     :param prj_id: Project identifier used to locate specific project files in the repository.
     :return: None
@@ -48,6 +48,6 @@ if __name__ == "__main__":
     # example: prj_id = '21'
     prj_id = 21
     try:
-        convert_sqlsrc(prj_id=prj_id)
+        make_sqlsrc(prj_id=prj_id)
     except Exception as e:
         print(e)

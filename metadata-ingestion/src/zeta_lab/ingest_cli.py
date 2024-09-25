@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 import click
 
-from zeta_lab.pipeline import ingest_metadata, convert_sqlsrc, extract_lineage, move_lineage
+from zeta_lab.pipeline import ingest_metadata, make_sqlsrc, extract_lineage, move_lineage
 from zeta_lab.utilities.tool import get_server_pid
 
 # 로깅 설정
@@ -330,7 +330,7 @@ def reset(ctx):
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 def ingest(gms):
-    """Run ingest_metadata.py"""
+    """Ingest metadata from qt_meta_populator."""
     try:
         ingest_metadata.ingest_metadata(gms_server_url=gms)
         click.echo("Metadata ingestion completed successfully.")
@@ -339,10 +339,10 @@ def ingest(gms):
 
 @cli.command()
 @click.option('--prj_id', required=True, help='Project ID')
-def convert(prj_id):
-    """Run convert_sqlsrc.py"""
+def make(prj_id):
+    """Make sqlsrc.json from sqlsrc.dat."""
     try:
-        convert_sqlsrc.convert_sqlsrc(prj_id=str(prj_id))
+        make_sqlsrc.make_sqlsrc(prj_id=str(prj_id))
         click.echo("SQL source conversion completed successfully.")
     except Exception as e:
         click.echo(f"Error during SQL source conversion: {str(e)}")
@@ -351,7 +351,7 @@ def convert(prj_id):
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
 def extract(gms, prj_id):
-    """Run extract_lineage.py"""
+    """Extract lineage from sqlsrc.json."""
     try:
         extract_lineage.extract_lineage(gms_server_url=gms, prj_id=str(prj_id))
         click.echo("Lineage extraction completed successfully.")
@@ -362,7 +362,7 @@ def extract(gms, prj_id):
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
 def move(gms, prj_id):
-    """Run move_lineage.py"""
+    """Move from lineage.db to database of qtrack."""
     try:
         move_lineage.move_lineage(gms_server_url=gms, prj_id=str(prj_id))
         click.echo("Lineage movement completed successfully.")
@@ -373,12 +373,12 @@ def move(gms, prj_id):
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
 def batch(gms, prj_id):
-    """Run convert, extract, and move operations in sequence"""
+    """Run make, extract, and move operations in sequence"""
     try:
         click.echo("Starting batch operation...")
 
-        click.echo("Step 1: Converting SQL source...")
-        convert_sqlsrc.convert_sqlsrc(prj_id=str(prj_id))
+        click.echo("Step 1: making SQL source...")
+        make_sqlsrc.make_sqlsrc(prj_id=str(prj_id))
 
         click.echo("Step 2: Extracting lineage...")
         extract_lineage.extract_lineage(gms_server_url=gms, prj_id=str(prj_id))
