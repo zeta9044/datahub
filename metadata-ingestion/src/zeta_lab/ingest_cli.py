@@ -1,17 +1,14 @@
-import json
-import logging
 import os
 import signal
 import subprocess
-import sys
 import threading
+import psutil
+import json
 import time
-from typing import Dict, Any
-
+import sys
+import logging
 import click
-
-from zeta_lab.pipeline import ingest_metadata, convert_sqlsrc, extract_lineage, move_lineage
-from zeta_lab.utilities.tool import get_server_pid
+from typing import Dict, Any
 
 # 로깅 설정
 logging.basicConfig(filename='ingest_cli.log', level=logging.DEBUG,
@@ -108,6 +105,19 @@ def save_config(ctx):
         json.dump(ctx.obj['config'], f, indent=2)
     logging.info(f"Saved configuration to {config_file}")
 
+
+def get_server_pid():
+    """
+    :return: The process ID (PID) of the server running 'async_lite_gms.py' or 'async_lite_gms', or None if no such server process is found.
+    """
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        if 'python' in proc.info['name'].lower() and 'async_lite_gms.py' in ' '.join(proc.info['cmdline']):
+            return proc.info['pid']
+        elif 'async_lite_gms' in proc.info['name'].lower():
+            return proc.info['pid']
+    return None
+
+
 @click.group()
 @click.option('--config-file', type=click.Path(exists=True), help="Path to the configuration file")
 @click.pass_context
@@ -119,8 +129,8 @@ def cli(ctx, config_file):
 
 @cli.group()
 @click.pass_context
-def gms(ctx):
-    """Commands for managing the GMS server."""
+def meta(ctx):
+    """Commands for managing the server metadata."""
     pass
 
 
@@ -145,10 +155,10 @@ def find_executable(base_path):
     return None
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def start(ctx):
-    """Start the GMS server."""
+    """Start the server."""
     pid = get_server_pid()
     if pid:
         click.echo(f"Server is already running (PID: {pid})")
@@ -195,10 +205,10 @@ def start(ctx):
         logging.error(f"Error starting server: {str(e)}")
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def stop(ctx):
-    """Stop the GMS server."""
+    """Stop the server."""
     pid = get_server_pid()
     if not pid:
         click.echo("Server is not running.")
@@ -216,19 +226,19 @@ def stop(ctx):
         logging.error(f"Failed to stop the server. Error: {str(e)}")
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def restart(ctx):
-    """Restart the GMS server."""
+    """Restart the server."""
     ctx.invoke(stop)
     time.sleep(2)
     ctx.invoke(start)
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def logs(ctx):
-    """Show GMS server logs."""
+    """Show server logs."""
     if not os.path.exists(ctx.obj['config']['log_file']):
         click.echo(f"Log file {ctx.obj['config']['log_file']} not found.")
         logging.error(f"Log file {ctx.obj['config']['log_file']} not found.")
@@ -270,10 +280,10 @@ def logs(ctx):
         logging.debug("Stopped showing logs")
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def status(ctx):
-    """Show GMS server status."""
+    """Show server status."""
     pid = get_server_pid()
     if not pid:
         click.echo("Server is not running.")
@@ -292,19 +302,19 @@ def status(ctx):
         logging.error(f"Health check failed. Error: {str(e)}")
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def settings(ctx):
-    """Show current GMS settings."""
+    """Show current settings."""
     click.echo("Current settings:")
     for key, value in ctx.obj['config'].items():
         click.echo(f"{key}: {value}")
 
 
-@gms.command()
+@meta.command()
 @click.pass_context
 def reset(ctx):
-    """Reset settings and restart GMS server."""
+    """Reset settings and restart server."""
     click.echo("Enter new settings (press Enter to keep current value):")
 
     for key in ctx.obj['config']:
@@ -327,68 +337,6 @@ def reset(ctx):
     click.echo("Settings updated. Restarting server...")
     ctx.invoke(restart)
 
-@cli.command()
-@click.option('--gms', default='http://localhost:8000', help='GMS server URL')
-def ingest(gms):
-    """Run ingest_metadata.py"""
-    try:
-        ingest_metadata.ingest_metadata(gms_server_url=gms)
-        click.echo("Metadata ingestion completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during metadata ingestion: {str(e)}")
-
-@cli.command()
-@click.option('--prj_id', required=True, help='Project ID')
-def convert(prj_id):
-    """Run convert_sqlsrc.py"""
-    try:
-        convert_sqlsrc.convert_sqlsrc(prj_id=str(prj_id))
-        click.echo("SQL source conversion completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during SQL source conversion: {str(e)}")
-
-@cli.command()
-@click.option('--gms', default='http://localhost:8000', help='GMS server URL')
-@click.option('--prj_id', required=True, help='Project ID')
-def extract(gms, prj_id):
-    """Run extract_lineage.py"""
-    try:
-        extract_lineage.extract_lineage(gms_server_url=gms, prj_id=str(prj_id))
-        click.echo("Lineage extraction completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during lineage extraction: {str(e)}")
-
-@cli.command()
-@click.option('--gms', default='http://localhost:8000', help='GMS server URL')
-@click.option('--prj_id', required=True, help='Project ID')
-def move(gms, prj_id):
-    """Run move_lineage.py"""
-    try:
-        move_lineage.move_lineage(gms_server_url=gms, prj_id=str(prj_id))
-        click.echo("Lineage movement completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during lineage movement: {str(e)}")
-
-@cli.command()
-@click.option('--gms', default='http://localhost:8000', help='GMS server URL')
-@click.option('--prj_id', required=True, help='Project ID')
-def batch(gms, prj_id):
-    """Run convert, extract, and move operations in sequence"""
-    try:
-        click.echo("Starting batch operation...")
-
-        click.echo("Step 1: Converting SQL source...")
-        convert_sqlsrc.convert_sqlsrc(prj_id=str(prj_id))
-
-        click.echo("Step 2: Extracting lineage...")
-        extract_lineage.extract_lineage(gms_server_url=gms, prj_id=str(prj_id))
-
-        click.echo("Step 3: Moving lineage...")
-        move_lineage.move_lineage(gms_server_url=gms, prj_id=str(prj_id))
-
-        click.echo("Batch operation completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during batch operation: {str(e)}")
 
 if __name__ == "__main__":
     cli(obj={})
