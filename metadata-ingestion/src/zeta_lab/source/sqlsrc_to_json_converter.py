@@ -149,5 +149,5 @@ class SqlsrcToJSONConverter(Source):
 
 # Add this to the source_registry
 from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("sqlsrc_to_json_converter", SqlsrcToJSONConverter)
-logger.info("Registered sqlsrc_to_json_converter source")
+source_registry.register("sqlsrc-to-json-converter", SqlsrcToJSONConverter)
+logger.debug("Registered sqlsrc-to-json-converter source")

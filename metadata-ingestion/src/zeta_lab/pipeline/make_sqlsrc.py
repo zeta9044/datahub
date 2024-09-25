@@ -26,7 +26,7 @@ def make_sqlsrc(prj_id):
         # pipeline setting
         sqlsrc_file_pipeline_config = {
             "source": {
-                "type": "sqlsrc_to_json_converter",
+                "type": "sqlsrc-to-json-converter",
                 "config": {
                     "input_path" : input_file,
                     "output_path": output_file

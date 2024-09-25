@@ -7,11 +7,16 @@ import sys
 import threading
 import time
 from typing import Dict, Any
-
 import click
-
 from zeta_lab.pipeline import ingest_metadata, make_sqlsrc, extract_lineage, move_lineage
 from zeta_lab.utilities.tool import get_server_pid
+from datahub.ingestion.sink.sink_registry import sink_registry
+from datahub.ingestion.sink.console import ConsoleSink
+from datahub.ingestion.sink.datahub_lite import DataHubLiteSink
+from datahub.ingestion.sink.datahub_rest import DatahubRestSink
+sink_registry.register("console", ConsoleSink)
+sink_registry.register("datahub-lite", DataHubLiteSink)
+sink_registry.register("datahub-rest", DatahubRestSink)
 
 # 로깅 설정
 logging.basicConfig(filename='ingest_cli.log', level=logging.DEBUG,
