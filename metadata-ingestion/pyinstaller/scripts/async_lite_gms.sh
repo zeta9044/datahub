@@ -11,6 +11,10 @@ remove_safely() {
     fi
 }
 
+# Clean up previous build artifacts while preserving important files
+remove_safely "build/async_lite_gms"
+remove_safely "dist/async_lite_gms"
+
 # Activate virtual environment and execute commands
 source venv/bin/activate
 

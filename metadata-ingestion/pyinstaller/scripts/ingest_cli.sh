@@ -11,6 +11,10 @@ remove_safely() {
     fi
 }
 
+# Clean up previous build artifacts while preserving important files
+remove_safely "build/ingest_cli"
+remove_safely "dist/ingest_cli"
+
 # Activate virtual environment and execute commands
 source venv/bin/activate
 
