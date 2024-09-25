@@ -1,18 +1,17 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from datahub.configuration.common import ConfigModel
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
-from datahub.metadata.com.linkedin.pegasus2avro.mxe import MetadataChangeEvent
-
 from zeta_lab.metadata.make_metadata import (
     transfer_meta_instance,
     transfer_metadata,
     create_metadata_from_duckdb,
 )
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class QtrackMetaSourceConfig(ConfigModel):
