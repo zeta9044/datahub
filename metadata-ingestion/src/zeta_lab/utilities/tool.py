@@ -3,6 +3,9 @@ import re
 import time
 import chardet
 from functools import wraps
+
+import psutil
+
 from datahub.metadata.schema_classes import (
     SchemaFieldDataTypeClass,
     NumberTypeClass,
@@ -358,3 +361,14 @@ def extract_dsn_from_xml_file(service_xml_path, security_properties_path):
     except ValueError as e:
         print(f"Error extracting DSN: {str(e)}")
         return None
+
+def get_server_pid():
+    """
+    :return: The process ID (PID) of the server running 'async_lite_gms.py' or 'async_lite_gms', or None if no such server process is found.
+    """
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        if 'python' in proc.info['name'].lower() and 'async_lite_gms.py' in ' '.join(proc.info['cmdline']):
+            return proc.info['pid']
+        elif 'async_lite_gms' in proc.info['name'].lower():
+            return proc.info['pid']
+    return None
