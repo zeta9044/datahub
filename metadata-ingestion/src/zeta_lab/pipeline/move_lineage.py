@@ -1,6 +1,7 @@
 import os
 
-from zeta_lab.utilities.tool import extract_db_info,get_server_pid
+from zeta_lab.ingest_cli import get_server_pid
+from zeta_lab.utilities.tool import extract_db_info
 from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
 from datahub.ingestion.run.pipeline import Pipeline
 
