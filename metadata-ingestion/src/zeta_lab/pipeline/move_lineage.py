@@ -5,7 +5,7 @@ from zeta_lab.utilities.tool import extract_db_info
 from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
 from datahub.ingestion.run.pipeline import Pipeline
 
-def ingest_lineage(gms_server_url,prj_id):
+def move_lineage(gms_server_url,prj_id):
     """
     :param gms_server_url: The URL of the GMS server to be checked for availability.
     :param prj_id: The project ID whose repository and sqlsrc.json file are required for lineage extraction.
@@ -90,6 +90,6 @@ if __name__ == "__main__":
     gms_server_url = "http://localhost:8000"
     prj_id = 21
     try:
-        ingest_lineage(gms_server_url=gms_server_url,prj_id=prj_id)
+        move_lineage(gms_server_url=gms_server_url,prj_id=prj_id)
     except Exception as e:
         print(e)
