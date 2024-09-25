@@ -24,8 +24,9 @@ zeta_lab_path = next((path for path in possible_paths if os.path.exists(path)), 
 
 if zeta_lab_path is None:
     raise FileNotFoundError("zeta_lab 디렉토리를 찾을 수 없습니다.")
-
+print('zeta_lab_path:',zeta_lab_path)
 datahub_path = os.path.join(os.path.dirname(zeta_lab_path), 'datahub')
+print('datahub_path:',datahub_path)
 
 # 메인 스크립트 경로
 main_script = os.path.join(zeta_lab_path, 'ingest_cli.py')

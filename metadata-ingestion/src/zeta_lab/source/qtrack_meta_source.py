@@ -59,8 +59,3 @@ class QtrackMetaSource(Source):
 
     def close(self) -> None:
         pass
-
-# Register the source with DataHub's source registry
-from datahub.ingestion.source.source_registry import source_registry
-source_registry.register("qtrack_meta_source", QtrackMetaSource)
-logger.info("Registered qtrack_meta_source source")
