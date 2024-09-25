@@ -1,7 +1,6 @@
 import os
 from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
-from zeta_lab.ingest_cli import get_server_pid
-from zeta_lab.utilities.tool import extract_dsn_from_xml_file
+from zeta_lab.utilities.tool import extract_dsn_from_xml_file,get_server_pid
 from datahub.ingestion.run.pipeline import Pipeline
 
 def ingest_metadata(gms_server_url):
