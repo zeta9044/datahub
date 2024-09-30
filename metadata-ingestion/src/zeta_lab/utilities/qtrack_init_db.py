@@ -12,6 +12,8 @@ def create_duckdb_tables(conn: Any):
     create_ais0103(conn)
     create_ais0112(conn)
     create_ais0113(conn)
+    create_ais0080(conn)
+    create_ais0081(conn)
 
 def create_ais0102(conn: Any):
     logger.info("Creating table 'ais0102' in DuckDB if it doesn't exist")
@@ -144,11 +146,97 @@ def create_ais0113(conn: Any):
     """)
     logger.info("Table 'ais0113' created or already exists in DuckDB")
 
+def create_ais0080(conn: Any):
+    logger.info("Creating table 'ais0080' in DuckDB if it doesn't exist")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS ais0080 (
+        seq_id INTEGER,
+        prj_id VARCHAR,
+        sql_id INTEGER,
+        table_id INTEGER,
+        src_owner_name VARCHAR,
+        src_table_name VARCHAR,
+        src_caps_table_name VARCHAR,
+        src_sql_obj_type VARCHAR,
+        src_unique_owner_name VARCHAR,
+        src_unique_owner_tgt_srv_id VARCHAR,
+        src_system_biz_id VARCHAR,
+        tgt_prj_id VARCHAR,
+        tgt_sql_id INTEGER,
+        tgt_table_id INTEGER,
+        tgt_owner_name VARCHAR,
+        tgt_table_name VARCHAR,
+        tgt_caps_table_name VARCHAR,
+        tgt_sql_obj_type VARCHAR,
+        tgt_unique_owner_name VARCHAR,
+        tgt_unique_owner_tgt_srv_id VARCHAR,
+        tgt_system_biz_id VARCHAR,
+        cond_mapping_bit INTEGER,
+        data_maker VARCHAR,
+        mapping_kind VARCHAR,
+        src_system_tgt_srv_id VARCHAR,
+        tgt_system_tgt_srv_id VARCHAR
+    )
+    """)
+    logger.info("Table 'ais0080' created or already exists in DuckDB")
+
+def create_ais0081(conn: Any):
+    logger.info("Creating table 'ais0081' in DuckDB if it doesn't exist")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS ais0081 (
+        seql_id INTEGER,
+        prj_id VARCHAR,
+        sql_id INTEGER,
+        table_id INTEGER,
+        col_id INTEGER,
+        src_owner_name VARCHAR,
+        src_table_name VARCHAR,
+        src_caps_table_name VARCHAR,
+        src_sql_obj_type VARCHAR,
+        src_col_name VARCHAR,
+        src_caps_col_name VARCHAR,
+        src_col_value_yn VARCHAR,
+        src_col_expr VARCHAR,
+        src_col_name_org VARCHAR,
+        src_caps_col_name_org VARCHAR,
+        src_unique_owner_name VARCHAR,
+        src_unique_owner_tgt_srv_id VARCHAR,
+        src_col_order_no INTEGER,
+        src_adj_col_order_no INTEGER,
+        src_system_biz_id VARCHAR,
+        tgt_prj_id VARCHAR,
+        tgt_sql_id INTEGER,
+        tgt_table_id INTEGER,
+        tgt_col_id INTEGER,
+        tgt_owner_name VARCHAR,
+        tgt_table_name VARCHAR,
+        tgt_caps_table_name VARCHAR,
+        tgt_sql_obj_type VARCHAR,
+        tgt_col_name VARCHAR,
+        tgt_caps_col_name VARCHAR,
+        tgt_col_value_yn VARCHAR,
+        tgt_col_expr VARCHAR,
+        tgt_col_name_org VARCHAR,
+        tgt_caps_col_name_org VARCHAR,
+        tgt_unique_owner_name VARCHAR,
+        tgt_unique_owner_tgt_srv_id VARCHAR,
+        tgt_col_order_no INTEGER,
+        tgt_adj_col_order_no INTEGER,
+        tgt_system_biz_id VARCHAR,
+        cond_mapping VARCHAR,
+        data_maker VARCHAR,
+        mapping_kind VARCHAR,
+        src_system_tgt_srv_id VARCHAR,
+        tgt_system_tgt_srv_id VARCHAR
+    )
+    """)
+    logger.info("Table 'ais0081' created or already exists in DuckDB")
+
 def check_postgres_tables_exist(pg_pool: Any, pg_config: dict):
     """Check if required tables exist in PostgreSQL."""
     with pg_pool.getconn() as conn:
         with conn.cursor() as cur:
-            for table in ['ais0112', 'ais0113']:
+            for table in ['ais0112', 'ais0113','ais0080','ais0081']:
                 cur.execute(f"""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
