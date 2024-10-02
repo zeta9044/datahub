@@ -476,6 +476,12 @@ class ConvertQtrackSource(Source):
             # Transfer ais0113
             await self.transfer_table('ais0113')
 
+            # Transfer ais0080
+            await self.transfer_table_with_sequence('ais0080')
+
+            # Transfer ais0081
+            await self.transfer_table_with_sequence('ais0081')
+
         except Exception as e:
             logger.error(f"Error during transfer to PostgreSQL: {e}")
 
@@ -511,6 +517,38 @@ class ConvertQtrackSource(Source):
 
         # Wait for all tasks to complete
         await asyncio.gather(*tasks)
+
+    async def transfer_table_with_sequence(self, table_name: str):
+        logger.info(f"Transferring {table_name} to PostgreSQL with sequence")
+
+        # Get total count
+        total_count = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+
+        # Get column information
+        columns_info = self.get_columns_info(table_name)
+
+        offset = 0
+        sem = asyncio.Semaphore(self.max_workers)
+        tasks = []
+
+        while offset < total_count:
+            # Fetch batch from DuckDB
+            query = f"SELECT * FROM {table_name} LIMIT {self.batch_size} OFFSET {offset}"
+            batch = self.duckdb_conn.execute(query).fetchall()
+
+            if not batch:
+                break
+
+            # Create and start task for batch insert
+            task = asyncio.create_task(self.insert_batch_with_sequence(sem, table_name, columns_info, batch))
+            tasks.append(task)
+
+            offset += self.batch_size
+            logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
+
 
     def get_columns_info(self, table_name: str) -> List[Tuple[str, Any]]:
         query = f"DESCRIBE {table_name}"
@@ -549,6 +587,38 @@ class ConvertQtrackSource(Source):
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
 
+    async def insert_batch_with_sequence(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
+        async with sem:
+            # Prepare INSERT statement with appropriate placeholders
+            columns = [col[0] for col in columns_info if col[0] != 'seq_id']
+            placeholders = [self.get_placeholder(col[1]) for col in columns_info if col[0] != 'seq_id']
+            insert_query = f"""
+                INSERT INTO {table_name} (seq_id, {', '.join(columns)})
+                VALUES (nextval('seq_{table_name}'), {', '.join(placeholders)})
+                ON CONFLICT DO NOTHING
+            """
+
+            # Convert batch data according to column types
+            converted_batch = [self.convert_row_without_seq_id(row, columns_info) for row in batch]
+
+            conn = await asyncio.to_thread(self.pg_pool.getconn)
+            try:
+                cur = await asyncio.to_thread(conn.cursor)
+                try:
+                    await asyncio.to_thread(
+                        psycopg2.extras.execute_batch,
+                        cur, insert_query, converted_batch, page_size=100
+                    )
+                    await asyncio.to_thread(conn.commit)
+                    logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                finally:
+                    await asyncio.to_thread(cur.close)
+            except Exception as e:
+                await asyncio.to_thread(conn.rollback)
+                logger.error(f"Error inserting batch into {table_name}: {e}")
+            finally:
+                await asyncio.to_thread(self.pg_pool.putconn, conn)
+
     def get_placeholder(self, col_type: str) -> str:
         if 'INTEGER' in col_type.upper() or 'NUMERIC' in col_type.upper() or 'DECIMAL' in col_type.upper() or 'FLOAT' in col_type.upper():
             return '%s::numeric'
@@ -558,6 +628,23 @@ class ConvertQtrackSource(Source):
     def convert_row(self, row: Tuple, columns_info: List[Tuple[str, Any]]) -> Tuple:
         converted_row = []
         for value, (_, col_type) in zip(row, columns_info):
+            if value == '' or value is None:
+                converted_row.append(None)
+            elif 'INTEGER' in col_type.upper():
+                converted_row.append(int(value) if value is not None else None)
+            elif 'NUMERIC' in col_type.upper() or 'DECIMAL' in col_type.upper() or 'FLOAT' in col_type.upper():
+                converted_row.append(float(value) if value is not None else None)
+            elif 'BOOLEAN' in col_type.upper():
+                converted_row.append(bool(value) if value is not None else None)
+            else:
+                converted_row.append(str(value))
+        return tuple(converted_row)
+
+    def convert_row_without_seq_id(self, row: Tuple, columns_info: List[Tuple[str, Any]]) -> Tuple:
+        converted_row = []
+        for value, (col_name, col_type) in zip(row, columns_info):
+            if col_name == 'seq_id':
+                continue
             if value == '' or value is None:
                 converted_row.append(None)
             elif 'INTEGER' in col_type.upper():
