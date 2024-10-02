@@ -429,8 +429,8 @@ def populate_ais0080(conn: Any):
         df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
         # src_system_biz_nm과 tgt_system_biz_nm 계산
-        df['src_system_biz_nm'] = df['src_system_nm'] + '_' + df['src_biz_nm']
-        df['tgt_system_biz_nm'] = df['tgt_system_nm'] + '_' + df['tgt_biz_nm']
+        df['src_system_biz_nm'] = None
+        df['tgt_system_biz_nm'] = None
 
         # ais0080 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
         columns_order = [
@@ -452,7 +452,7 @@ def populate_ais0080(conn: Any):
             conn.execute("INSERT INTO ais0080 SELECT * FROM batch")
             conn.commit()
 
-        print(f"Data insertion completed successfully. {len(df_insert)} rows inserted.")
+        print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
 
     except duckdb.Error as e:
         logger.error(f"Error populating ais0080: {e}")
@@ -498,9 +498,13 @@ def populate_ais0081(conn: Any):
         sql_query = """
         SELECT
             w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, w81.src_mte_table_id,
-            w81.src_caps_col_name, w81.src_col_name, w81.src_col_value_yn, w81.src_mte_col_id, 
+            case when w81.src_caps_col_name=='*' then '[*+*]' else w81.src_caps_col_name end as src_caps_col_name , 
+            case when w81.src_col_name=='*' then '[*+*]' else w81.src_col_name end as src_col_name , 
+            w81.src_col_value_yn, w81.src_mte_col_id, 
             w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, w81.tgt_mte_table_id,
-            w81.tgt_caps_col_name, w81.tgt_col_name, w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
+            case when w81.tgt_caps_col_name=='*' then '[*+*]' else w81.tgt_caps_col_name end as tgt_caps_col_name , 
+            case when w81.tgt_col_name=='*' then '[*+*]' else w81.tgt_col_name end as tgt_col_name , 
+            w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
             w81.src_owner_tgt_srv_id, w81.tgt_owner_tgt_srv_id, w81.cond_mapping, w81.mapping_kind, w81.src_system_biz_id, w81.tgt_system_biz_id, w81.data_maker,
             src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
             src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
@@ -523,8 +527,8 @@ def populate_ais0081(conn: Any):
         df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
         # src_system_biz_nm과 tgt_system_biz_nm 계산
-        df['src_system_biz_nm'] = df['src_system_nm'] + '_' + df['src_biz_nm']
-        df['tgt_system_biz_nm'] = df['tgt_system_nm'] + '_' + df['tgt_biz_nm']
+        df['src_system_biz_nm'] = None
+        df['tgt_system_biz_nm'] = None
 
         # ais0081 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
         columns_order = [
