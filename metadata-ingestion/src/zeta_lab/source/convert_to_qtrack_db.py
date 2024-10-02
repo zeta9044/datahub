@@ -590,26 +590,37 @@ class ConvertQtrackSource(Source):
     async def insert_batch_with_sequence(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
         async with sem:
             # Prepare INSERT statement with appropriate placeholders
-            columns = [col[0] for col in columns_info if col[0] != 'seq_id']
-            placeholders = [self.get_placeholder(col[1]) for col in columns_info if col[0] != 'seq_id']
+            duckdb_columns = [col[0] for col in columns_info]
+            placeholders = [self.get_placeholder(col[1]) for col in columns_info]
+
+            # Find the indices of src_prj_id and tgt_prj_id
+            src_prj_id_index = duckdb_columns.index('src_prj_id')
+            tgt_prj_id_index = duckdb_columns.index('tgt_prj_id')
+
             insert_query = f"""
-                INSERT INTO {table_name} (
-                    seq_id, 
-                    src_system_tgt_srv_id, 
-                    tgt_system_tgt_srv_id, 
-                    {', '.join(columns)}
-                )
-                VALUES (
-                    nextval('seq_{table_name}'), 
-                    AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
-                    AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
-                    {', '.join(placeholders)}
-                )
-                ON CONFLICT DO NOTHING
-            """
-            print(insert_query)
+            INSERT INTO {table_name} (
+                seq_id, 
+                src_system_tgt_srv_id, 
+                tgt_system_tgt_srv_id, 
+                {', '.join(duckdb_columns)}
+            )
+            VALUES (
+                nextval('seq_{table_name}'), 
+                AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
+                AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
+                {', '.join(['%s' for _ in duckdb_columns])}
+            )
+            ON CONFLICT DO NOTHING
+        """
+            logger.debug(f"Insert query for {table_name}: {insert_query}")
+
             # Convert batch data according to column types
-            converted_batch = [self.convert_row_without_seq_id(row, columns_info) for row in batch]
+            converted_batch = [self.convert_row_for_postgres(row, columns_info, src_prj_id_index, tgt_prj_id_index) for row in batch]
+
+            # Log the number of columns and first row for debugging
+            logger.debug(f"Number of columns in data: {len(converted_batch[0])}")
+            logger.debug(f"Number of placeholders in query: {len(duckdb_columns) + 2}")  # +2 for src_system_tgt_srv_id and tgt_system_tgt_srv_id
+            logger.debug(f"First row of data: {converted_batch[0]}")
 
             conn = await asyncio.to_thread(self.pg_pool.getconn)
             try:
@@ -621,11 +632,15 @@ class ConvertQtrackSource(Source):
                     )
                     await asyncio.to_thread(conn.commit)
                     logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                except Exception as e:
+                    logger.error(f"Error inserting batch into {table_name}: {e}")
+                    logger.error(f"Problematic row: {converted_batch[0]}")
+                    raise
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
                 await asyncio.to_thread(conn.rollback)
-                logger.error(f"Error inserting batch into {table_name}: {e}")
+                logger.error(f"Error in database operation for {table_name}: {e}")
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
 
@@ -650,11 +665,9 @@ class ConvertQtrackSource(Source):
                 converted_row.append(str(value))
         return tuple(converted_row)
 
-    def convert_row_without_seq_id(self, row: Tuple, columns_info: List[Tuple[str, Any]]) -> Tuple:
+    def convert_row_for_postgres(self, row: Tuple, columns_info: List[Tuple[str, Any]], src_prj_id_index: int, tgt_prj_id_index: int) -> Tuple:
         converted_row = []
-        for value, (col_name, col_type) in zip(row, columns_info):
-            if col_name in ['seq_id','src_system_tgt_srv_id','tgt_system_tgt_srv_id']:
-                continue
+        for i, (value, (_, col_type)) in enumerate(zip(row, columns_info)):
             if value == '' or value is None:
                 converted_row.append(None)
             elif 'INTEGER' in col_type.upper():
@@ -665,7 +678,9 @@ class ConvertQtrackSource(Source):
                 converted_row.append(bool(value) if value is not None else None)
             else:
                 converted_row.append(str(value))
-        return tuple(converted_row)
+
+        # Add src_prj_id and tgt_prj_id at the beginning for AP_COMMON_FN_SYSTEM_TGTSRVID
+        return (converted_row[src_prj_id_index], converted_row[tgt_prj_id_index], *converted_row)
 
     def get_postgres_pool(self):
         logger.info("Creating PostgreSQL connection pool")
