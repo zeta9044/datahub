@@ -138,8 +138,8 @@ def create_ais0113(conn: Any):
         call_unique_owner_name VARCHAR(80),
         unique_owner_tgt_srv_id VARCHAR(100),
         call_unique_owner_tgt_srv_id VARCHAR(100),
-        cond_mapping INTEGER,
-        data_maker VARCHAR(100),
+        cond_mapping INTEGER DEFAULT 2,
+        data_maker VARCHAR(100) DEFAULT 'ingest_cli',
         mapping_kind VARCHAR(10),
         col_order_no INTEGER,
         call_col_order_no INTEGER,
@@ -283,7 +283,7 @@ def populate_ais0080(conn: Any):
             FROM ais0080
         """)
         conn.execute("""
-            INSERT INTO ais0080_work (
+            INSERT OR REPLACE INTO ais0080_work (
                 src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
                 src_owner_tgt_srv_id, src_system_biz_id,
                 tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_mte_table_id,
@@ -318,7 +318,7 @@ def populate_ais0081(conn: Any):
             FROM ais0081
         """)
         conn.execute("""
-            INSERT INTO ais0081_work (
+            INSERT OR REPLACE INTO ais0081_work (
                 src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
                 src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
                 src_owner_tgt_srv_id, src_system_biz_id,

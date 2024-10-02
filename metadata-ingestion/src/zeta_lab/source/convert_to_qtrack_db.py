@@ -14,7 +14,7 @@ from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.qtrack_init_db import create_duckdb_tables, check_postgres_tables_exist
+from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist,populate_ais0080,populate_ais0081
 from zeta_lab.utilities.tool import NameUtil,get_system_biz_id,get_system_tgt_srv_id,get_owner_srv_id,get_system_id,get_system_name,get_biz_id,get_biz_name
 
 logging.basicConfig(level=logging.INFO)
@@ -77,6 +77,10 @@ class ConvertQtrackSource(Source):
             self.process_lineage(downstream, metadata)
 
         logger.info(f"Processed {len(results)} lineage records")
+
+        # populate ais0080,ais0081
+        populate_ais0080(self.duckdb_conn)
+        populate_ais0081(self.duckdb_conn)
 
         # After processing all lineage records
         logger.info("Starting asynchronous transfer to PostgreSQL")
@@ -192,7 +196,7 @@ class ConvertQtrackSource(Source):
                 downstream_data[17], downstream_data[18],  # call_unique_owner_name, call_unique_owner_tgt_srv_id
                 call_col_order_no, call_col_order_no,  # call_col_order_no, call_adj_col_order_no
                 downstream_data[20],  # call_system_biz_id
-                0, '', ''  # cond_mapping, data_maker, mapping_kind
+                2, 'ingest_cli', ''  # cond_mapping, data_maker, mapping_kind
             ))
             logger.debug(f"Inserted/Updated record in ais0113 for {upstream_data[11]} -> {downstream_data[11]}")
         except duckdb.Error as e:
