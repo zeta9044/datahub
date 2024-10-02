@@ -29,7 +29,7 @@ def create_ais0102(conn: Any):
             sql_obj_type VARCHAR,
             table_urn VARCHAR,
             system_biz_id VARCHAR,
-            tgt_system_biz_id VARCHAR,
+            system_tgt_srv_id VARCHAR,
             owner_srv_id VARCHAR,
             system_id VARCHAR,
             system_name VARCHAR,
