@@ -449,71 +449,6 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             logger.error(f"Error creating virtual column lineage: {e}")
 
-    async def populate_ais0080_ais0081(self):
-        logger.info("Populating ais0080 from ais0112")
-        self.duckdb_conn.execute("""
-            INSERT INTO ais0080 (
-                prj_id, sql_id, table_id, src_owner_name, src_table_name, src_caps_table_name,
-                src_sql_obj_type, src_unique_owner_name, src_unique_owner_tgt_srv_id, src_system_biz_id,
-                tgt_prj_id, tgt_sql_id, tgt_table_id, tgt_owner_name, tgt_table_name, tgt_caps_table_name,
-                tgt_sql_obj_type, tgt_unique_owner_name, tgt_unique_owner_tgt_srv_id, tgt_system_biz_id,
-                cond_mapping_bit, data_maker, mapping_kind
-            )
-            SELECT DISTINCT
-                prj_id, sql_id, table_id, owner_name, table_name, caps_table_name,
-                sql_obj_type, unique_owner_name, unique_owner_tgt_srv_id, system_biz_id,
-                call_prj_id, call_sql_id, call_table_id, call_owner_name, call_table_name, call_caps_table_name,
-                call_sql_obj_type, call_unique_owner_name, call_unique_owner_tgt_srv_id, call_system_biz_id,
-                cond_mapping_bit, data_maker, mapping_kind
-            FROM ais0112
-        """)
-
-        logger.info("Populating ais0081 from ais0113")
-        self.duckdb_conn.execute("""
-            INSERT INTO ais0081 (
-                prj_id, sql_id, table_id, col_id, src_owner_name, src_table_name, src_caps_table_name,
-                src_sql_obj_type, src_col_name, src_caps_col_name, src_col_value_yn, src_col_expr,
-                src_col_name_org, src_caps_col_name_org, src_unique_owner_name, src_unique_owner_tgt_srv_id,
-                src_col_order_no, src_adj_col_order_no, src_system_biz_id,
-                tgt_prj_id, tgt_sql_id, tgt_table_id, tgt_col_id, tgt_owner_name, tgt_table_name, tgt_caps_table_name,
-                tgt_sql_obj_type, tgt_col_name, tgt_caps_col_name, tgt_col_value_yn, tgt_col_expr,
-                tgt_col_name_org, tgt_caps_col_name_org, tgt_unique_owner_name, tgt_unique_owner_tgt_srv_id,
-                tgt_col_order_no, tgt_adj_col_order_no, tgt_system_biz_id,
-                cond_mapping, data_maker, mapping_kind
-            )
-            SELECT DISTINCT
-                prj_id, sql_id, table_id, col_id, owner_name, table_name, caps_table_name,
-                sql_obj_type, col_name, caps_col_name, col_value_yn, col_expr,
-                col_name_org, caps_col_name_org, unique_owner_name, unique_owner_tgt_srv_id,
-                col_order_no, adj_col_order_no, system_biz_id,
-                call_prj_id, call_sql_id, call_table_id, call_col_id, call_owner_name, call_table_name, call_caps_table_name,
-                call_sql_obj_type, call_col_name, call_caps_col_name, call_col_value_yn, call_col_expr,
-                call_col_name_org, call_caps_col_name_org, call_unique_owner_name, call_unique_owner_tgt_srv_id,
-                call_col_order_no, call_adj_col_order_no, call_system_biz_id,
-                cond_mapping, data_maker, mapping_kind
-            FROM ais0113
-        """)
-
-    def prepare_ais0080_insert_query(self, columns):
-        return f"""
-            INSERT INTO ais0080 ({', '.join(columns)}, seq_id, src_system_tgt_srv_id, tgt_system_tgt_srv_id)
-            VALUES ({', '.join(['%s' for _ in columns])}, 
-                    nextval('seq_ais0080'), 
-                    ap_common_fn_system_tgtsrvid(src_prj_id),
-                    ap_common_fn_system_tgtsrvid(tgt_prj_id))
-            ON CONFLICT DO NOTHING
-        """
-
-    def prepare_ais0081_insert_query(self, columns):
-        return f"""
-            INSERT INTO ais0081 ({', '.join(columns)}, seql_id, src_system_tgt_srv_id, tgt_system_tgt_srv_id)
-            VALUES ({', '.join(['%s' for _ in columns])}, 
-                    nextval('seq_ais0081'), 
-                    ap_common_fn_system_tgtsrvid(src_prj_id),
-                    ap_common_fn_system_tgtsrvid(tgt_prj_id))
-            ON CONFLICT DO NOTHING
-        """
-
     async def transfer_to_postgresql(self):
         logger.info("Starting asynchronous batch transfer to PostgreSQL")
 
@@ -523,14 +458,6 @@ class ConvertQtrackSource(Source):
 
             # Transfer ais0113
             await self.transfer_table('ais0113')
-
-            # Populate and transfer new tables
-            await self.populate_ais0080_ais0081()
-            # Transfer ais0080
-            await self.transfer_table('ais0080')
-
-            # Transfer ais0081
-            await self.transfer_table('ais0081')
 
         except Exception as e:
             logger.error(f"Error during transfer to PostgreSQL: {e}")
@@ -578,18 +505,11 @@ class ConvertQtrackSource(Source):
             # Prepare INSERT statement with appropriate placeholders
             columns = [col[0] for col in columns_info]
             placeholders = [self.get_placeholder(col[1]) for col in columns_info]
-
-            # Special handling for ais0080 and ais0081
-            if table_name == 'ais0080':
-                insert_query = self.prepare_ais0080_insert_query(columns)
-            elif table_name == 'ais0081':
-                insert_query = self.prepare_ais0081_insert_query(columns)
-            else:
-                insert_query = f"""
-                    INSERT INTO {table_name} ({', '.join(columns)})
-                    VALUES ({', '.join(placeholders)})
-                    ON CONFLICT DO NOTHING
-                """
+            insert_query = f"""
+                INSERT INTO {table_name} ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                ON CONFLICT DO NOTHING
+            """
 
             # Convert batch data according to column types
             converted_batch = [self.convert_row(row, columns_info) for row in batch]
