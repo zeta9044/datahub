@@ -8,13 +8,14 @@ import psycopg2.extras
 import requests
 from psycopg2 import pool
 
+from datahub.cli.specific.structuredproperties_cli import properties
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_init_db import create_duckdb_tables, check_postgres_tables_exist
-from zeta_lab.utilities.tool import get_system_biz_id, NameUtil
+from zeta_lab.utilities.tool import NameUtil,get_system_biz_id,get_system_tgt_srv_id,get_owner_srv_id,get_system_id,get_system_name,get_biz_id,get_biz_name
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -207,7 +208,13 @@ class ConvertQtrackSource(Source):
             SELECT prj_id, file_id, sql_id, table_id, obj_id, func_id, 
                    COALESCE(sql_obj_type, '') as sql_obj_type,
                    COALESCE(table_urn, '') as table_urn,
-                   COALESCE(system_biz_id, '') as system_biz_id
+                   COALESCE(system_biz_id, '') as system_biz_id,
+                   COALESCE(system_tgt_srv_id, '') as system_tgt_srv_id,
+                   COALESCE(owner_srv_id, '') as owner_srv_id,
+                   COALESCE(system_id, '') as system_id,
+                   COALESCE(system_name, '') as system_name,
+                   COALESCE(biz_id, '') as biz_id,
+                   COALESCE(biz_name, '') as biz_name
             FROM ais0102 
             WHERE table_urn = ? AND prj_id = ? AND file_id = ? AND sql_id = ? AND obj_id = ? AND func_id = ?
         """
@@ -340,14 +347,20 @@ class ConvertQtrackSource(Source):
     def insert_ais0102(self, prj_id: str, file_id: int, sql_id: int, obj_id: int, func_id: int,
                        query_type: str, table_urn: str, sql_obj_type: str, table_id: int, properties: Dict) -> None:
         system_biz_id = get_system_biz_id(properties)
+        system_tgt_srv_id = get_system_tgt_srv_id(properties)
+        owner_srv_id = get_owner_srv_id(properties)
+        system_id = get_system_id(properties)
+        system_name = get_system_name(properties)
+        biz_id = get_biz_id(properties)
+        biz_name = get_biz_name(properties)
 
         try:
             self.duckdb_conn.execute("""
                     INSERT OR REPLACE INTO ais0102 
-                    (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,system_name,biz_id,biz_name )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?)
                 """, (
-                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id))
+                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,system_name,biz_id,biz_name))
             logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
         except duckdb.Error as e:
             logger.error(f"Error inserting into ais0102: {e}")
