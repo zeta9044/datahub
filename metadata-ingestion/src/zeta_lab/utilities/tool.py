@@ -288,19 +288,55 @@ class NameUtil:
         parts = input_string.split('.')
         return '.'.join(parts[:-1])
 
-def get_owner_srv_id(props):
-    # If props is None, return "[owner_undefined]"
-    if props is None:
-        return "[owner_undefined]"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
-
 def get_system_biz_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "[owner_undefined]"
     # If "customProperties" is missing or empty, return "[owner_undefined]"
     return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
+
+def get_system_tgt_srv_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "NA"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("tgt_srv_id", "") or "NA"
+
+def get_owner_srv_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "[owner_undefined]"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("owner_srv_id", "") or "[owner_undefined]"
+
+def get_system_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "[owner"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("system_id", "") or "[owner"
+
+def get_system_name(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "[owner"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("system_name", "") or "[owner"
+
+def get_biz_id(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "undefined"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("biz_id", "") or "undefined"
+
+def get_biz_name(props):
+    # If props is None, return "[owner_undefined]"
+    if props is None:
+        return "undefined"
+    # If "customProperties" is missing or empty, return "[owner_undefined]"
+    return (props or {}).get("customProperties", {}).get("biz_name", "") or "undefined"
+
 
 
 def extract_db_info(service_xml_path, security_properties_path):
