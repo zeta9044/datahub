@@ -196,7 +196,6 @@ def create_ais0080(conn: Any):
             src_table_name_org VARCHAR,
             src_table_type VARCHAR,
             src_mte_table_id VARCHAR,
-            src_system_tgt_srv_id VARCHAR,
             tgt_prj_id VARCHAR,
             tgt_owner_name VARCHAR,
             tgt_caps_table_name VARCHAR,
@@ -204,7 +203,6 @@ def create_ais0080(conn: Any):
             tgt_table_name_org VARCHAR,
             tgt_table_type VARCHAR,
             tgt_mte_table_id VARCHAR,
-            tgt_system_tgt_srv_id VARCHAR,
             src_owner_tgt_srv_id VARCHAR,
             tgt_owner_tgt_srv_id VARCHAR,
             cond_mapping_bit INTEGER,
@@ -278,7 +276,6 @@ def create_ais0081(conn: Any):
             src_col_name VARCHAR,
             src_col_value_yn VARCHAR,
             src_mte_col_id INTEGER,
-            src_system_tgt_srv_id VARCHAR,
             tgt_prj_id VARCHAR,
             tgt_owner_name VARCHAR,
             tgt_caps_table_name VARCHAR,
@@ -290,7 +287,6 @@ def create_ais0081(conn: Any):
             tgt_col_name VARCHAR,
             tgt_col_value_yn VARCHAR,
             tgt_mte_col_id INTEGER,
-            tgt_system_tgt_srv_id VARCHAR,
             src_owner_tgt_srv_id VARCHAR,
             tgt_owner_tgt_srv_id VARCHAR,
             cond_mapping INTEGER,
@@ -409,8 +405,8 @@ def populate_ais0080(conn: Any):
         # SQL 쿼리
         sql_query = """
         SELECT
-            w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, w80.src_mte_table_id, src.system_tgt_srv_id AS src_system_tgt_srv_id,
-            w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, w80.tgt_mte_table_id, tgt.system_tgt_srv_id AS tgt_system_tgt_srv_id,
+            w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, w80.src_mte_table_id, 
+            w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, w80.tgt_mte_table_id, 
             w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
             src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
             src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
@@ -438,8 +434,8 @@ def populate_ais0080(conn: Any):
 
         # ais0080 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
         columns_order = [
-            'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id', 'src_system_tgt_srv_id',
-            'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id', 'tgt_system_tgt_srv_id',
+            'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
+            'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
             'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping_bit', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id',
             'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
             'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',
@@ -502,9 +498,9 @@ def populate_ais0081(conn: Any):
         sql_query = """
         SELECT
             w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, w81.src_mte_table_id,
-            w81.src_caps_col_name, w81.src_col_name, w81.src_col_value_yn, w81.src_mte_col_id, src.system_tgt_srv_id AS src_system_tgt_srv_id,
+            w81.src_caps_col_name, w81.src_col_name, w81.src_col_value_yn, w81.src_mte_col_id, 
             w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, w81.tgt_mte_table_id,
-            w81.tgt_caps_col_name, w81.tgt_col_name, w81.tgt_col_value_yn, w81.tgt_mte_col_id, tgt.system_tgt_srv_id AS tgt_system_tgt_srv_id,
+            w81.tgt_caps_col_name, w81.tgt_col_name, w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
             w81.src_owner_tgt_srv_id, w81.tgt_owner_tgt_srv_id, w81.cond_mapping, w81.mapping_kind, w81.src_system_biz_id, w81.tgt_system_biz_id, w81.data_maker,
             src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
             src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
@@ -533,9 +529,9 @@ def populate_ais0081(conn: Any):
         # ais0081 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
         columns_order = [
             'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
-            'src_caps_col_name', 'src_col_name', 'src_col_value_yn', 'src_mte_col_id', 'src_system_tgt_srv_id',
+            'src_caps_col_name', 'src_col_name', 'src_col_value_yn', 'src_mte_col_id',
             'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
-            'tgt_caps_col_name', 'tgt_col_name', 'tgt_col_value_yn', 'tgt_mte_col_id', 'tgt_system_tgt_srv_id',
+            'tgt_caps_col_name', 'tgt_col_name', 'tgt_col_value_yn', 'tgt_mte_col_id',
             'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id', 'data_maker',
             'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
             'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',

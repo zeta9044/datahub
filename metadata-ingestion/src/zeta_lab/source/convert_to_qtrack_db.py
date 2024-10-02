@@ -593,11 +593,21 @@ class ConvertQtrackSource(Source):
             columns = [col[0] for col in columns_info if col[0] != 'seq_id']
             placeholders = [self.get_placeholder(col[1]) for col in columns_info if col[0] != 'seq_id']
             insert_query = f"""
-                INSERT INTO {table_name} (seq_id, {', '.join(columns)})
-                VALUES (nextval('seq_{table_name}'), {', '.join(placeholders)})
+                INSERT INTO {table_name} (
+                    seq_id, 
+                    src_system_tgt_srv_id, 
+                    tgt_system_tgt_srv_id, 
+                    {', '.join(columns)}
+                )
+                VALUES (
+                    nextval('seq_{table_name}'), 
+                    AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
+                    AP_COMMON_FN_SYSTEM_TGTSRVID(%s)::varchar(100), 
+                    {', '.join(placeholders)}
+                )
                 ON CONFLICT DO NOTHING
             """
-
+            print(insert_query)
             # Convert batch data according to column types
             converted_batch = [self.convert_row_without_seq_id(row, columns_info) for row in batch]
 
@@ -643,7 +653,7 @@ class ConvertQtrackSource(Source):
     def convert_row_without_seq_id(self, row: Tuple, columns_info: List[Tuple[str, Any]]) -> Tuple:
         converted_row = []
         for value, (col_name, col_type) in zip(row, columns_info):
-            if col_name == 'seq_id':
+            if col_name in ['seq_id','src_system_tgt_srv_id','tgt_system_tgt_srv_id']:
                 continue
             if value == '' or value is None:
                 converted_row.append(None)
