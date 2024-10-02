@@ -6,6 +6,7 @@ from functools import wraps
 
 import psutil
 
+from datahub.metadata._urns.urn_defs import DatasetUrn
 from datahub.metadata.schema_classes import (
     SchemaFieldDataTypeClass,
     NumberTypeClass,
@@ -337,7 +338,15 @@ def get_biz_name(props):
     # If "customProperties" is missing or empty, return "[owner_undefined]"
     return (props or {}).get("customProperties", {}).get("biz_name", "") or "undefined"
 
+def get_db_name(table_urn):
+    dataset_urn = DatasetUrn.from_string(table_urn)
+    table_content = dataset_urn.get_dataset_name()
+    return NameUtil.get_db_name(table_content).upper()
 
+def get_schema_name(table_urn):
+    dataset_urn = DatasetUrn.from_string(table_urn)
+    table_content = dataset_urn.get_dataset_name()
+    return NameUtil.get_schema(table_content).upper()
 
 def extract_db_info(service_xml_path, security_properties_path):
     """
