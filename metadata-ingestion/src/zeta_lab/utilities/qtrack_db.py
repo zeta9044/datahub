@@ -267,3 +267,75 @@ def check_postgres_tables_exist(pg_pool: Any, pg_config: dict):
                 else:
                     logger.info(f"Table '{table}' exists in PostgreSQL")
         pg_pool.putconn(conn)
+
+
+def populate_ais0080(conn: Any):
+    logger.info("Populating ais0080 from ais0112")
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ais0080_work AS 
+            SELECT
+                src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                src_owner_tgt_srv_id, src_system_biz_id,
+                tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_mte_table_id,
+                tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                cond_mapping_bit, mapping_kind
+            FROM ais0080
+        """)
+        conn.execute("""
+            INSERT INTO ais0080_work (
+                src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                src_owner_tgt_srv_id, src_system_biz_id,
+                tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_mte_table_id,
+                tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                cond_mapping_bit, mapping_kind
+            )
+            SELECT DISTINCT
+                prj_id, owner_name, caps_table_name, table_name, sql_obj_type, cast(table_id as VARCHAR), 
+                unique_owner_tgt_srv_id, system_biz_id,
+                call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type, cast(call_table_id as VARCHAR),
+                call_unique_owner_tgt_srv_id, call_system_biz_id,
+                cond_mapping_bit, mapping_kind
+            FROM ais0112
+        """)
+    except duckdb.Error as e:
+        logger.error(f"Error populating ais0080: {e}")
+
+
+def populate_ais0081(conn: Any):
+    logger.info("Populating ais0081 from ais0113")
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ais0081_work AS 
+            SELECT
+                src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
+                src_owner_tgt_srv_id, src_system_biz_id,
+                tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
+                tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
+                tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                cond_mapping, mapping_kind, data_maker
+            FROM ais0081
+        """)
+        conn.execute("""
+            INSERT INTO ais0081_work (
+                src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
+                src_owner_tgt_srv_id, src_system_biz_id,
+                tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
+                tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
+                tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                cond_mapping, mapping_kind, data_maker
+            )
+            SELECT DISTINCT
+                prj_id, owner_name, caps_table_name, table_name,sql_obj_type, cast(table_id as VARCHAR),
+                caps_col_name, col_name, col_value_yn,col_id,
+                unique_owner_tgt_srv_id, system_biz_id,
+                call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, cast(call_table_id as VARCHAR),
+                call_caps_col_name, call_col_name, call_col_value_yn,call_col_id,
+                call_unique_owner_tgt_srv_id, call_system_biz_id,
+                cond_mapping, mapping_kind, data_maker
+            FROM ais0113
+        """)
+    except duckdb.Error as e:
+        logger.error(f"Error populating ais0081: {e}")
