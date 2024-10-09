@@ -63,6 +63,7 @@ def move_lineage(gms_server_url,prj_id):
                     },
                     "duckdb_path": lineage_path,
                     "prj_id": prj_id,
+                    "logger_path": os.path.join(engine_home,'logs'),
                     "target_config": {
                         "type": "postgres",
                         "host_port": host_port,

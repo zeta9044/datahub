@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime
+import os
 import logging
 from typing import List, Dict, Iterable, Tuple, Any
 
@@ -19,23 +21,21 @@ from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_ta
 from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
     get_system_name, get_biz_id, get_biz_name
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 
 class ConvertQtrackSource(Source):
     def __init__(self, config: dict, ctx: PipelineContext):
         super().__init__(ctx)
         self.config = config
         self.report = SourceReport()
-        logger.info("Initializing ConvertQtrackSource")
+        self.setup_logger(self.config.get('prj_id', ''), self.config.get('logger_path', ''))
+        self.logger.info("Initializing ConvertQtrackSource")
         self.duckdb_conn = duckdb.connect(self.config["duckdb_path"])
-        logger.info(f"Connected to DuckDB at {self.config['duckdb_path']}")
+        self.logger.info(f"Connected to DuckDB at {self.config['duckdb_path']}")
         self.pg_pool = self.get_postgres_pool()
-        logger.info("Initialized PostgreSQL connection pool")
+        self.logger.info("Initialized PostgreSQL connection pool")
         self.batch_size = self.config.get("batch_size", 1000)
         self.max_workers = self.config.get("max_workers", 5)
-        logger.info(f"Batch size: {self.batch_size}, Max workers: {self.max_workers}")
+        self.logger.info(f"Batch size: {self.batch_size}, Max workers: {self.max_workers}")
         self.initialize_databases()
         self.table_id_map = {}
         self.column_id_map = {}
@@ -45,11 +45,49 @@ class ConvertQtrackSource(Source):
 
     @classmethod
     def create(cls, config_dict, ctx):
-        logger.info("Creating ConvertQtrackSource instance")
         return cls(config_dict, ctx)
 
+    def setup_logger(self, prj_id: str, logger_path: str):
+        # 현재 날짜를 가져옵니다
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # 로그 파일명을 생성합니다
+        log_filename = f"analyzer_{prj_id}.log_{current_date}"
+
+        # 전체 로그 파일 경로를 생성합니다
+        full_log_path = os.path.join(logger_path, log_filename)
+
+        # 로그 디렉토리가 존재하지 않으면 생성합니다
+        os.makedirs(logger_path, exist_ok=True)
+
+        # 로거를 설정합니다
+        self.logger = logging.getLogger("analyzer")
+        self.logger.setLevel(logging.DEBUG)
+
+        # 파일 핸들러를 생성합니다 (파일이 있으면 append, 없으면 생성)
+        file_handler = logging.FileHandler(full_log_path, mode='a')
+
+        # 커스텀 포매터를 생성합니다
+        class CustomFormatter(logging.Formatter):
+            def format(self, record):
+                level_map = {
+                    'INFO': 'info',
+                    'WARNING': 'warn',
+                    'ERROR': 'eror',
+                    'DEBUG': 'dbug'
+                }
+                record.levelname = level_map.get(record.levelname, record.levelname.lower())
+                return super().format(record)
+
+        formatter = CustomFormatter('[%(asctime)s] [%(levelname)s] %(message)s',
+                                    datefmt='%Y.%m.%d %H:%M:%S')
+        file_handler.setFormatter(formatter)
+
+        # 핸들러를 로거에 추가합니다
+        self.logger.addHandler(file_handler)
+
     def initialize_databases(self):
-        logger.info("Initializing databases")
+        self.logger.info("Initializing databases")
         create_duckdb_tables(self.duckdb_conn)
         check_postgres_tables_exist(self.pg_pool, self.config['target_config'])
 
@@ -78,14 +116,14 @@ class ConvertQtrackSource(Source):
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
             self.process_lineage(downstream, metadata)
 
-        logger.info(f"Processed {len(results)} lineage records")
+        self.logger.info(f"Processed {len(results)} lineage records")
 
         # populate ais0080,ais0081
         populate_ais0080(self.duckdb_conn)
         populate_ais0081(self.duckdb_conn)
 
         # After processing all lineage records
-        logger.info("Starting asynchronous transfer to PostgreSQL")
+        self.logger.info("Starting asynchronous transfer to PostgreSQL")
         asyncio.run(self.transfer_to_postgresql())
 
         return []
@@ -126,7 +164,7 @@ class ConvertQtrackSource(Source):
         downstream_data = self.get_ais0102_data(downstream_urn, query_custom_keys)
 
         if not upstream_data or not downstream_data:
-            logger.warning(f"Missing data for ais0112: upstream={upstream_urn}, downstream={downstream_urn}")
+            self.logger.warning(f"Missing data for ais0112: upstream={upstream_urn}, downstream={downstream_urn}")
             return
 
         try:
@@ -139,9 +177,9 @@ class ConvertQtrackSource(Source):
                     call_unique_owner_tgt_srv_id, call_system_biz_id, cond_mapping_bit, data_maker, mapping_kind
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (*upstream_data, *downstream_data, 2, '', ''))  # cond_mapping_bit, data_maker, mapping_kind는 기본값으로 설정
-            logger.debug(f"Inserted/Updated record in ais0112 for {upstream_urn} -> {downstream_urn}")
+            self.logger.debug(f"Inserted/Updated record in ais0112 for {upstream_urn} -> {downstream_urn}")
         except duckdb.Error as e:
-            logger.error(f"Error inserting into ais0112: {e}")
+            self.logger.error(f"Error inserting into ais0112: {e}")
 
     def populate_ais0113(self, upstream_urn: str, downstream_urn: str, fine_grained_lineages: List[Dict],
                          query_custom_keys: Dict) -> None:
@@ -200,9 +238,9 @@ class ConvertQtrackSource(Source):
                 downstream_data[20],  # call_system_biz_id
                 1, 'ingest_cli', ''  # cond_mapping, data_maker, mapping_kind
             ))
-            logger.debug(f"Inserted/Updated record in ais0113 for {upstream_data[11]} -> {downstream_data[11]}")
+            self.logger.debug(f"Inserted/Updated record in ais0113 for {upstream_data[11]} -> {downstream_data[11]}")
         except duckdb.Error as e:
-            logger.error(f"Error inserting into ais0113: {e}")
+            self.logger.error(f"Error inserting into ais0113: {e}")
 
     def get_next_column_order(self, table_urn: str) -> int:
         order = self.column_order.get(table_urn, 0)
@@ -313,24 +351,24 @@ class ConvertQtrackSource(Source):
     def get_dataset_properties(self, dataset_urn: str) -> Dict:
         url = f"{self.config['datahub_api']['server']}/aspects/{DatasetUrn.url_encode(dataset_urn)}?aspect=datasetProperties&version=0"
         try:
-            logger.info(f"Fetching dataset properties for {dataset_urn}")
+            self.logger.info(f"Fetching dataset properties for {dataset_urn}")
             with requests.get(url, timeout=self.config['datahub_api']['timeout_sec']) as response:
                 if response.status_code == 200:
-                    logger.info(f"Successfully fetched dataset properties for {dataset_urn}")
+                    self.logger.info(f"Successfully fetched dataset properties for {dataset_urn}")
                     return response.json()
                 else:
-                    logger.debug(f"Failed to get dataset properties for {dataset_urn}: HTTP {response.status_code}")
+                    self.logger.debug(f"Failed to get dataset properties for {dataset_urn}: HTTP {response.status_code}")
                     if response.status_code == 404:
-                        logger.warning(f"Dataset not found: {dataset_urn}. Using empty properties.")
+                        self.logger.warning(f"Dataset not found: {dataset_urn}. Using empty properties.")
                         return {}  # Return empty dict if dataset not found
                     elif response.status_code == 500:
-                        logger.error(
+                        self.logger.error(
                             "Server error occurred. This might be due to the dataset not existing or other server-side issues.")
                     return {}
         except requests.Timeout:
-            logger.error(f"The request timed out of {self.config['datahub_api']['timeout_sec']} sec")
+            self.logger.error(f"The request timed out of {self.config['datahub_api']['timeout_sec']} sec")
         except requests.RequestException as e:
-            logger.error(f"Unexpected error when trying to reach {url}: {e}")
+            self.logger.error(f"Unexpected error when trying to reach {url}: {e}")
 
     def process_table_lineage(self, downstream: str, upstream_urn: str, query_custom_keys: Dict,
                               downstream_table_id: int, upstream_table_id: int,
@@ -368,9 +406,9 @@ class ConvertQtrackSource(Source):
                 """, (
                 prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,
                 system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name))
-            logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
+            self.logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
         except duckdb.Error as e:
-            logger.error(f"Error inserting into ais0102: {e}")
+            self.logger.error(f"Error inserting into ais0102: {e}")
 
     def process_column_lineage(self, downstream: str, upstream_urn: str, fine_grained_lineages: List[Dict],
                                query_custom_keys: Dict, downstream_table_id: int, upstream_table_id: int,
@@ -434,9 +472,9 @@ class ConvertQtrackSource(Source):
                 prj_id, file_id, sql_id, downstream_table_id, downstream_col_id, 0, 0, downstream_col,
                 transform_operation))
 
-            logger.debug(f"Inserted/Updated records in ais0103 for columns: {upstream_col} -> {downstream_col}")
+            self.logger.debug(f"Inserted/Updated records in ais0103 for columns: {upstream_col} -> {downstream_col}")
         except duckdb.Error as e:
-            logger.error(f"Error inserting into ais0103: {e}")
+            self.logger.error(f"Error inserting into ais0103: {e}")
 
     def create_virtual_column_lineage(self, downstream: str, upstream_urn: str, query_custom_keys: Dict,
                                       downstream_table_id: int, upstream_table_id: int,
@@ -465,12 +503,12 @@ class ConvertQtrackSource(Source):
                 """, (
                 prj_id, file_id, sql_id, downstream_table_id, downstream_virtual_col_id, 0, 0, downstream_virtual_col))
 
-            logger.debug(f"Created virtual column lineage: {upstream_virtual_col} -> {downstream_virtual_col}")
+            self.logger.debug(f"Created virtual column lineage: {upstream_virtual_col} -> {downstream_virtual_col}")
         except duckdb.Error as e:
-            logger.error(f"Error creating virtual column lineage: {e}")
+            self.logger.error(f"Error creating virtual column lineage: {e}")
 
     async def transfer_to_postgresql(self):
-        logger.info("Starting asynchronous batch transfer to PostgreSQL")
+        self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
 
         try:
             # Transfer ais0112
@@ -489,12 +527,12 @@ class ConvertQtrackSource(Source):
             await self.transfer_table_with_sequence('ais0081')
 
         except Exception as e:
-            logger.error(f"Error during transfer to PostgreSQL: {e}")
+            self.logger.error(f"Error during transfer to PostgreSQL: {e}")
 
-        logger.info("Completed asynchronous batch transfer to PostgreSQL")
+        self.logger.info("Completed asynchronous batch transfer to PostgreSQL")
 
     async def transfer_table(self, table_name: str):
-        logger.info(f"Transferring {table_name} to PostgreSQL")
+        self.logger.info(f"Transferring {table_name} to PostgreSQL")
 
         # Get total count
         total_count = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
@@ -519,13 +557,13 @@ class ConvertQtrackSource(Source):
             tasks.append(task)
 
             offset += self.batch_size
-            logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
+            self.logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
 
         # Wait for all tasks to complete
         await asyncio.gather(*tasks)
 
     async def transfer_table_with_sequence(self, table_name: str):
-        logger.info(f"Transferring {table_name} to PostgreSQL with sequence")
+        self.logger.info(f"Transferring {table_name} to PostgreSQL with sequence")
 
         # Get total count
         total_count = self.duckdb_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
@@ -550,13 +588,13 @@ class ConvertQtrackSource(Source):
             tasks.append(task)
 
             offset += self.batch_size
-            logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
+            self.logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for {table_name}")
 
         # Wait for all tasks to complete
         await asyncio.gather(*tasks)
 
     async def delete_existing_records(self):
-        logger.info("Deleting existing records from ais0080 and ais0081")
+        self.logger.info("Deleting existing records from ais0080 and ais0081")
 
         delete_queries = [
             "DELETE FROM ais0080 WHERE src_prj_id = %s",
@@ -573,19 +611,19 @@ class ConvertQtrackSource(Source):
                     for query in delete_queries:
                         await asyncio.to_thread(cur.execute, query, (prj_id,))
                         deleted_rows = cur.rowcount
-                        logger.info(f"Deleted {deleted_rows} rows using query: {query}")
+                        self.logger.info(f"Deleted {deleted_rows} rows using query: {query}")
 
                     await asyncio.to_thread(conn.commit)
-                    logger.info("Successfully deleted existing records from ais0080 and ais0081")
+                    self.logger.info("Successfully deleted existing records from ais0080 and ais0081")
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
                 await asyncio.to_thread(conn.rollback)
-                logger.error(f"Error deleting existing records: {e}")
+                self.logger.error(f"Error deleting existing records: {e}")
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
         except Exception as e:
-            logger.error(f"Error in database operation for deleting existing records: {e}")
+            self.logger.error(f"Error in database operation for deleting existing records: {e}")
 
     def get_columns_info(self, table_name: str) -> List[Tuple[str, Any]]:
         query = f"DESCRIBE {table_name}"
@@ -616,12 +654,12 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
                 await asyncio.to_thread(conn.rollback)
-                logger.error(f"Error inserting batch into {table_name}: {e}")
+                self.logger.error(f"Error inserting batch into {table_name}: {e}")
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
 
@@ -651,17 +689,17 @@ class ConvertQtrackSource(Source):
             )
             ON CONFLICT DO NOTHING
         """
-            logger.debug(f"Insert query for {table_name}: {insert_query}")
+            self.logger.debug(f"Insert query for {table_name}: {insert_query}")
 
             # Convert batch data according to column types
             converted_batch = [self.convert_row_for_postgres(row, columns_info, src_prj_id_index, tgt_prj_id_index) for
                                row in batch]
 
             # Log the number of columns and first row for debugging
-            logger.debug(f"Number of columns in data: {len(converted_batch[0])}")
-            logger.debug(
+            self.logger.debug(f"Number of columns in data: {len(converted_batch[0])}")
+            self.logger.debug(
                 f"Number of placeholders in query: {len(duckdb_columns) + 2}")  # +2 for src_system_tgt_srv_id and tgt_system_tgt_srv_id
-            logger.debug(f"First row of data: {converted_batch[0]}")
+            self.logger.debug(f"First row of data: {converted_batch[0]}")
 
             conn = await asyncio.to_thread(self.pg_pool.getconn)
             try:
@@ -672,16 +710,16 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
                 except Exception as e:
-                    logger.error(f"Error inserting batch into {table_name}: {e}")
-                    logger.error(f"Problematic row: {converted_batch[0]}")
+                    self.logger.error(f"Error inserting batch into {table_name}: {e}")
+                    self.logger.error(f"Problematic row: {converted_batch[0]}")
                     raise
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
                 await asyncio.to_thread(conn.rollback)
-                logger.error(f"Error in database operation for {table_name}: {e}")
+                self.logger.error(f"Error in database operation for {table_name}: {e}")
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
 
@@ -725,7 +763,7 @@ class ConvertQtrackSource(Source):
         return (converted_row[src_prj_id_index], converted_row[tgt_prj_id_index], *converted_row)
 
     def get_postgres_pool(self):
-        logger.info("Creating PostgreSQL connection pool")
+        self.logger.info("Creating PostgreSQL connection pool")
         pg_config = self.config['target_config']
         try:
             pool = psycopg2.pool.SimpleConnectionPool(
@@ -736,26 +774,26 @@ class ConvertQtrackSource(Source):
                 user=pg_config['username'],
                 password=pg_config['password']
             )
-            logger.info("Successfully created PostgreSQL connection pool")
+            self.logger.info("Successfully created PostgreSQL connection pool")
             return pool
         except Exception as e:
-            logger.error(f"Failed to create PostgreSQL connection pool: {e}")
+            self.logger.error(f"Failed to create PostgreSQL connection pool: {e}")
             raise
 
     def get_report(self):
-        logger.info("Generating report")
+        self.logger.info("Generating report")
         return self.report
 
     def close(self):
-        logger.info("Closing connections")
+        self.logger.info("Closing connections")
         try:
             self.duckdb_conn.close()
-            logger.info("Closed DuckDB connection")
+            self.logger.info("Closed DuckDB connection")
         except Exception as e:
-            logger.error(f"Error closing DuckDB connection: {e}")
+            self.logger.error(f"Error closing DuckDB connection: {e}")
 
         try:
             self.pg_pool.closeall()
-            logger.info("Closed all PostgreSQL connections")
+            self.logger.info("Closed all PostgreSQL connections")
         except Exception as e:
-            logger.error(f"Error closing PostgreSQL connections: {e}")
+            self.logger.error(f"Error closing PostgreSQL connections: {e}")
