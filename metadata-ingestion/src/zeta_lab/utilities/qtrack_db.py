@@ -461,7 +461,7 @@ def populate_ais0080(conn: Any):
 
         for i in range(0, len(df_insert), batch_size):
             batch = df_insert.iloc[i:i+batch_size]
-            conn.execute("INSERT INTO ais0080 SELECT * FROM batch")
+            conn.execute("INSERT OR REPLACE INTO ais0080 SELECT * FROM batch")
             conn.commit()
 
         print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
@@ -561,7 +561,7 @@ def populate_ais0081(conn: Any):
 
         for i in range(0, len(df_insert), batch_size):
             batch = df_insert.iloc[i:i+batch_size]
-            conn.execute("INSERT INTO ais0081 SELECT * FROM batch")
+            conn.execute("INSERT OR REPLACE INTO ais0081 SELECT * FROM batch")
             conn.commit()
 
         print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
