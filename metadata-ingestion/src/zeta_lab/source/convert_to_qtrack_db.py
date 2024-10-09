@@ -71,6 +71,13 @@ class ConvertQtrackSource(Source):
         """
         results = self.duckdb_conn.execute(query).fetchall()
 
+        self.duckdb_conn.execute("CALL truncate('ais0102');")
+        self.duckdb_conn.execute("CALL truncate('ais0103');")
+        self.duckdb_conn.execute("CALL truncate('ais0112');")
+        self.duckdb_conn.execute("CALL truncate('ais0113');")
+        self.duckdb_conn.execute("CALL truncate('ais0080');")
+        self.duckdb_conn.execute("CALL truncate('ais0081');")
+
         for row in results:
             downstream = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
