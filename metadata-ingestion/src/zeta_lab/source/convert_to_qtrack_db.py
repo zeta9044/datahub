@@ -485,9 +485,6 @@ class ConvertQtrackSource(Source):
             # Transfer ais0081
             await self.transfer_table_with_sequence('ais0081')
 
-            # ais0010 테이블의 end_date 업데이트
-            await self.update_ais0010_end_date()
-
         except Exception as e:
             logger.error(f"Error during transfer to PostgreSQL: {e}")
 
@@ -554,42 +551,6 @@ class ConvertQtrackSource(Source):
 
         # Wait for all tasks to complete
         await asyncio.gather(*tasks)
-
-    async def update_ais0010_end_date(self):
-        """
-        Update end_date in the ais0010 table for records that have a specified project ID and a NULL end_date.
-
-        :return: None
-        """
-        logger.info("Updating end_date in ais0010 table")
-
-        update_query = """
-        UPDATE ais0010
-        SET end_date = NOW()
-        WHERE prj_id = %s AND end_date IS NULL
-        """
-
-        try:
-            conn = await asyncio.to_thread(self.pg_pool.getconn)
-            try:
-                cur = await asyncio.to_thread(conn.cursor)
-                try:
-                    # prj_id 가져오기 (설정에서 또는 다른 방법으로)
-                    prj_id = self.config.get('prj_id', '')  # prj_id를 설정에서 가져오거나 적절한 방법으로 설정
-
-                    await asyncio.to_thread(cur.execute, update_query, (prj_id,))
-                    updated_rows = cur.rowcount
-                    await asyncio.to_thread(conn.commit)
-                    logger.info(f"Updated {updated_rows} rows in ais0010 table")
-                finally:
-                    await asyncio.to_thread(cur.close)
-            except Exception as e:
-                await asyncio.to_thread(conn.rollback)
-                logger.error(f"Error updating ais0010 table: {e}")
-            finally:
-                await asyncio.to_thread(self.pg_pool.putconn, conn)
-        except Exception as e:
-            logger.error(f"Error in database operation for ais0010 update: {e}")
 
     def get_columns_info(self, table_name: str) -> List[Tuple[str, Any]]:
         query = f"DESCRIBE {table_name}"

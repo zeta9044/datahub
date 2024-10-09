@@ -61,7 +61,6 @@ def move_lineage(gms_server_url,prj_id):
                         "server": gms_server_url,
                         "timeout_sec": 60
                     },
-                    "prj_id": prj_id,
                     "duckdb_path": lineage_path,
                     "target_config": {
                         "type": "postgres",
