@@ -28,6 +28,9 @@ class ConvertQtrackSource(Source):
         self.config = config
         self.report = SourceReport()
         self.setup_logger(self.config.get('prj_id', ''), self.config.get('logger_path', ''))
+        self.logger.info(" ================================================================")
+        self.logger.info(" ingesting source")
+        self.logger.info(" ================================================================")
         self.logger.info("Initializing ConvertQtrackSource")
         self.duckdb_conn = duckdb.connect(self.config["duckdb_path"])
         self.logger.info(f"Connected to DuckDB at {self.config['duckdb_path']}")
@@ -62,7 +65,7 @@ class ConvertQtrackSource(Source):
 
         # 로거를 설정합니다
         self.logger = logging.getLogger("analyzer")
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
 
         # 파일 핸들러를 생성합니다 (파일이 있으면 append, 없으면 생성)
         file_handler = logging.FileHandler(full_log_path, mode='a')
@@ -611,7 +614,7 @@ class ConvertQtrackSource(Source):
                     for query in delete_queries:
                         await asyncio.to_thread(cur.execute, query, (prj_id,))
                         deleted_rows = cur.rowcount
-                        self.logger.info(f"Deleted {deleted_rows} rows using query: {query}")
+                        self.logger.debug(f"Deleted {deleted_rows} rows using query: {query}")
 
                     await asyncio.to_thread(conn.commit)
                     self.logger.info("Successfully deleted existing records from ais0080 and ais0081")
