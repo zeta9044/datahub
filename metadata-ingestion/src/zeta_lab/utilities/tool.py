@@ -281,7 +281,7 @@ class NameUtil:
     def get_unique_owner_name(input_string):
         # DB명과 스키마를 추출하여 결합
         parts = input_string.split('.')
-        return f"{parts[-3]}.{parts[-2]}"
+        return f"{parts[-3]}.{parts[-2]}".upper()
 
     @staticmethod
     def get_unique_owner_tgt_srv_id(input_string):
@@ -290,7 +290,7 @@ class NameUtil:
         result = '.'.join(parts[:-1])
 
         # result가 'NA.'으로 시작하면 [owner_undefined] 반환
-        return "[owner_undefined]" if result.startswith("NA.") else result
+        return "[owner_undefined]" if result.startswith("na.") else result.upper()
 
 
 def get_system_biz_id(props):

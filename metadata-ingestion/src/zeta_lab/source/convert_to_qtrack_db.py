@@ -247,8 +247,8 @@ class ConvertQtrackSource(Source):
                 table_name,
                 table_name.upper(),  # caps_table_name
                 result[6].lower(),  # sql_obj_type
-                unique_owner_name.upper(),
-                unique_owner_tgt_srv_id.upper(),
+                unique_owner_name,
+                unique_owner_tgt_srv_id,
                 result[8]  # system_biz_id
             )
         return None
@@ -301,8 +301,8 @@ class ConvertQtrackSource(Source):
                 '',  # col_expr (empty for now)
                 col_name,  # col_name_org
                 col_name.upper() if col_name != '*' else '*',  # caps_col_name_org
-                unique_owner_name.upper(),
-                unique_owner_tgt_srv_id.upper(),
+                unique_owner_name,
+                unique_owner_tgt_srv_id,
                 result[9],  # transform_operation
                 result[10]  # system_biz_id
             )
