@@ -14,8 +14,10 @@ from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist,populate_ais0080,populate_ais0081
-from zeta_lab.utilities.tool import NameUtil,get_system_biz_id,get_system_tgt_srv_id,get_owner_srv_id,get_system_id,get_system_name,get_biz_id,get_biz_name
+from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist, populate_ais0080, \
+    populate_ais0081
+from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
+    get_system_name, get_biz_id, get_biz_name
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,6 +80,10 @@ class ConvertQtrackSource(Source):
 
         logger.info(f"Processed {len(results)} lineage records")
 
+        # populate ais0080,ais0081
+        populate_ais0080(self.duckdb_conn)
+        populate_ais0081(self.duckdb_conn)
+
         # After processing all lineage records
         logger.info("Starting asynchronous transfer to PostgreSQL")
         asyncio.run(self.transfer_to_postgresql())
@@ -104,9 +110,6 @@ class ConvertQtrackSource(Source):
                                        downstream_properties, upstream_properties)
             self.populate_ais0112(upstream_urn, downstream, query_custom_keys)
 
-        # populate ais0080
-        populate_ais0080(self.duckdb_conn)
-
         for upstream in upstreams:
             upstream_urn = upstream['dataset']
             upstream_properties = self.get_dataset_properties(upstream_urn)
@@ -117,9 +120,6 @@ class ConvertQtrackSource(Source):
                                         downstream_table_id, upstream_table_ids[upstream_urn],
                                         downstream_properties, upstream_properties)
             self.populate_ais0113(upstream_urn, downstream, fine_grained_lineages, query_custom_keys)
-
-        # populate ais0081
-        populate_ais0081(self.duckdb_conn)
 
     def populate_ais0112(self, upstream_urn: str, downstream_urn: str, query_custom_keys: Dict) -> None:
         upstream_data = self.get_ais0102_data(upstream_urn, query_custom_keys)
@@ -366,7 +366,8 @@ class ConvertQtrackSource(Source):
                     (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,system_name,biz_id,biz_name )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?)
                 """, (
-                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,system_name,biz_id,biz_name))
+                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,
+                system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name))
             logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
         except duckdb.Error as e:
             logger.error(f"Error inserting into ais0102: {e}")
@@ -551,13 +552,13 @@ class ConvertQtrackSource(Source):
         # Wait for all tasks to complete
         await asyncio.gather(*tasks)
 
-
     def get_columns_info(self, table_name: str) -> List[Tuple[str, Any]]:
         query = f"DESCRIBE {table_name}"
         columns_info = self.duckdb_conn.execute(query).fetchall()
         return [(col[0], col[1]) for col in columns_info]
 
-    async def insert_batch(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
+    async def insert_batch(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]],
+                           batch: List[Tuple]):
         async with sem:
             # Prepare INSERT statement with appropriate placeholders
             columns = [col[0] for col in columns_info]
@@ -589,7 +590,8 @@ class ConvertQtrackSource(Source):
             finally:
                 await asyncio.to_thread(self.pg_pool.putconn, conn)
 
-    async def insert_batch_with_sequence(self, sem: asyncio.Semaphore, table_name: str, columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
+    async def insert_batch_with_sequence(self, sem: asyncio.Semaphore, table_name: str,
+                                         columns_info: List[Tuple[str, Any]], batch: List[Tuple]):
         async with sem:
             # Prepare INSERT statement with appropriate placeholders
             duckdb_columns = [col[0] for col in columns_info]
@@ -617,11 +619,13 @@ class ConvertQtrackSource(Source):
             logger.debug(f"Insert query for {table_name}: {insert_query}")
 
             # Convert batch data according to column types
-            converted_batch = [self.convert_row_for_postgres(row, columns_info, src_prj_id_index, tgt_prj_id_index) for row in batch]
+            converted_batch = [self.convert_row_for_postgres(row, columns_info, src_prj_id_index, tgt_prj_id_index) for
+                               row in batch]
 
             # Log the number of columns and first row for debugging
             logger.debug(f"Number of columns in data: {len(converted_batch[0])}")
-            logger.debug(f"Number of placeholders in query: {len(duckdb_columns) + 2}")  # +2 for src_system_tgt_srv_id and tgt_system_tgt_srv_id
+            logger.debug(
+                f"Number of placeholders in query: {len(duckdb_columns) + 2}")  # +2 for src_system_tgt_srv_id and tgt_system_tgt_srv_id
             logger.debug(f"First row of data: {converted_batch[0]}")
 
             conn = await asyncio.to_thread(self.pg_pool.getconn)
@@ -667,7 +671,8 @@ class ConvertQtrackSource(Source):
                 converted_row.append(str(value))
         return tuple(converted_row)
 
-    def convert_row_for_postgres(self, row: Tuple, columns_info: List[Tuple[str, Any]], src_prj_id_index: int, tgt_prj_id_index: int) -> Tuple:
+    def convert_row_for_postgres(self, row: Tuple, columns_info: List[Tuple[str, Any]], src_prj_id_index: int,
+                                 tgt_prj_id_index: int) -> Tuple:
         converted_row = []
         for i, (value, (_, col_type)) in enumerate(zip(row, columns_info)):
             if value == '' or value is None:

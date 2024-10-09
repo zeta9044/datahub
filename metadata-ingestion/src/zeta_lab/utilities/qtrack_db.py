@@ -456,15 +456,32 @@ def populate_ais0080(conn: Any):
 
         df_insert = df[columns_order]
 
-        # 결과를 ais0080 테이블에 삽입
-        batch_size = 1000  # 이 값을 조정하여 성능을 최적화할 수 있습니다
+        # 결과를 ais0080 테이블에 batch로 삽입
+        batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
 
-        for i in range(0, len(df_insert), batch_size):
-            batch = df_insert.iloc[i:i+batch_size]
-            conn.execute("INSERT OR REPLACE INTO ais0080 SELECT * FROM batch")
-            conn.commit()
+        try:
+            conn.execute("BEGIN TRANSACTION")
 
-        print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
+            for i in range(0, len(df_insert), batch_size):
+                batch = df_insert.iloc[i:i+batch_size]
+
+                # DuckDB의 SQL 구문을 사용하여 batch insert
+                insert_query = f"""
+                    INSERT OR REPLACE INTO ais0080 ({', '.join(batch.columns)})
+                    SELECT * FROM batch
+                """
+
+                # batch를 임시 테이블로 생성하고 insert
+                conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
+                conn.execute(insert_query)
+                conn.execute("DROP TABLE batch")
+
+            conn.execute("COMMIT")
+            print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
+        except Exception as e:
+            conn.execute("ROLLBACK")
+            print(f"Error occurred: {str(e)}. Rolling back changes.")
+            raise
 
     except duckdb.Error as e:
         logger.error(f"Error populating ais0080: {e}")
@@ -556,15 +573,32 @@ def populate_ais0081(conn: Any):
 
         df_insert = df[columns_order]
 
-        # 결과를 ais0081 테이블에 삽입
-        batch_size = 1000  # 이 값을 조정하여 성능을 최적화할 수 있습니다
+        # 결과를 ais0081 테이블에 batch로 삽입
+        batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
 
-        for i in range(0, len(df_insert), batch_size):
-            batch = df_insert.iloc[i:i+batch_size]
-            conn.execute("INSERT OR REPLACE INTO ais0081 SELECT * FROM batch")
-            conn.commit()
+        try:
+            conn.execute("BEGIN TRANSACTION")
 
-        print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
+            for i in range(0, len(df_insert), batch_size):
+                batch = df_insert.iloc[i:i+batch_size]
+
+                # DuckDB의 SQL 구문을 사용하여 batch insert
+                insert_query = f"""
+                    INSERT OR REPLACE INTO ais0081 ({', '.join(batch.columns)})
+                    SELECT * FROM batch
+                """
+
+                # batch를 임시 테이블로 생성하고 insert
+                conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
+                conn.execute(insert_query)
+                conn.execute("DROP TABLE batch")
+
+            conn.execute("COMMIT")
+            print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
+        except Exception as e:
+            conn.execute("ROLLBACK")
+            print(f"Error occurred: {str(e)}. Rolling back changes.")
+            raise
 
     except duckdb.Error as e:
         logger.error(f"Error populating ais0081: {e}")
