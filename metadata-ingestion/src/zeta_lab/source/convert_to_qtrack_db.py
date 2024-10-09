@@ -136,7 +136,7 @@ class ConvertQtrackSource(Source):
                     call_table_name, call_caps_table_name, call_sql_obj_type, call_unique_owner_name,
                     call_unique_owner_tgt_srv_id, call_system_biz_id, cond_mapping_bit, data_maker, mapping_kind
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (*upstream_data, *downstream_data, 2, 'ingest_cli', ''))  # cond_mapping_bit, data_maker, mapping_kind는 기본값으로 설정
+            """, (*upstream_data, *downstream_data, 2, '', ''))  # cond_mapping_bit, data_maker, mapping_kind는 기본값으로 설정
             logger.debug(f"Inserted/Updated record in ais0112 for {upstream_urn} -> {downstream_urn}")
         except duckdb.Error as e:
             logger.error(f"Error inserting into ais0112: {e}")
