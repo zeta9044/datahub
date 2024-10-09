@@ -287,7 +287,11 @@ class NameUtil:
     def get_unique_owner_tgt_srv_id(input_string):
         # 마지막 부분(테이블명) 제외하고 다시 합치기
         parts = input_string.split('.')
-        return '.'.join(parts[:-1])
+        result = '.'.join(parts[:-1])
+
+        # result가 'NA.'으로 시작하면 [owner_undefined] 반환
+        return "[owner_undefined]" if result.startswith("NA.") else result
+
 
 def get_system_biz_id(props):
     # If props is None, return "[owner_undefined]"
