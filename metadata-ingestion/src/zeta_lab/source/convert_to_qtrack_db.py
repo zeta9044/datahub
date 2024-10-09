@@ -78,10 +78,6 @@ class ConvertQtrackSource(Source):
 
         logger.info(f"Processed {len(results)} lineage records")
 
-        # populate ais0080,ais0081
-        populate_ais0080(self.duckdb_conn)
-        populate_ais0081(self.duckdb_conn)
-
         # After processing all lineage records
         logger.info("Starting asynchronous transfer to PostgreSQL")
         asyncio.run(self.transfer_to_postgresql())
@@ -108,6 +104,9 @@ class ConvertQtrackSource(Source):
                                        downstream_properties, upstream_properties)
             self.populate_ais0112(upstream_urn, downstream, query_custom_keys)
 
+        # populate ais0080
+        populate_ais0080(self.duckdb_conn)
+
         for upstream in upstreams:
             upstream_urn = upstream['dataset']
             upstream_properties = self.get_dataset_properties(upstream_urn)
@@ -118,6 +117,9 @@ class ConvertQtrackSource(Source):
                                         downstream_table_id, upstream_table_ids[upstream_urn],
                                         downstream_properties, upstream_properties)
             self.populate_ais0113(upstream_urn, downstream, fine_grained_lineages, query_custom_keys)
+
+        # populate ais0081
+        populate_ais0081(self.duckdb_conn)
 
     def populate_ais0112(self, upstream_urn: str, downstream_urn: str, query_custom_keys: Dict) -> None:
         upstream_data = self.get_ais0102_data(upstream_urn, query_custom_keys)
