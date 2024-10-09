@@ -22,6 +22,9 @@ def create_duckdb_tables(conn: Any):
 def create_ais0102(conn: Any):
     logger.info("Creating table 'ais0102'.")
     conn.execute("""
+        DROP TABLE IF EXISTS ais0102;
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS ais0102 (
                 prj_id VARCHAR,
                 file_id INTEGER,
@@ -73,6 +76,9 @@ def create_ais0102_work(conn: Any):
 def create_ais0103(conn: Any):
     logger.info("Creating table 'ais0103'.")
     conn.execute("""
+        DROP TABLE IF EXISTS ais0103;
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS ais0103 (
                 prj_id VARCHAR,
                 file_id INTEGER,
@@ -90,6 +96,9 @@ def create_ais0103(conn: Any):
 
 def create_ais0112(conn: Any):
     logger.info("Creating table 'ais0112'.")
+    conn.execute("""
+        DROP TABLE IF EXISTS ais0112;
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ais0112 (
             prj_id VARCHAR(5),
@@ -128,6 +137,9 @@ def create_ais0112(conn: Any):
 
 def create_ais0113(conn: Any):
     logger.info("Creating table 'ais0112'.")
+    conn.execute("""
+        DROP TABLE IF EXISTS ais0113;
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ais0113 (
             prj_id VARCHAR(5),
