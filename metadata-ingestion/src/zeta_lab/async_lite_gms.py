@@ -551,7 +551,7 @@ def main(log_file, db_file, log_level, port):
     # Start the FastAPI application
     import uvicorn
     logging.info(f"Starting async_lite_gms server on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level=log_level.lower())
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False, log_level=log_level.lower())
 
 
 if __name__ == "__main__":
