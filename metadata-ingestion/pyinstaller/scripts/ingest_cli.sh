@@ -20,7 +20,7 @@ source venv/bin/activate
 
 if [ $? -eq 0 ]; then
     # Generate binary using PyInstaller
-    pyinstaller --static-linking --clean pyinstaller/spec/ingest_cli.spec
+    pyinstaller --clean pyinstaller/spec/ingest_cli.spec
 
     if [ $? -eq 0 ]; then
         outputPath="$projectRoot/dist/ingest_cli"
