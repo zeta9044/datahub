@@ -20,7 +20,7 @@ source venv/bin/activate
 
 if [ $? -eq 0 ]; then
     # Generate binary using PyInstaller
-    pyinstaller --clean pyinstaller/spec/async_lite_gms.spec
+    pyinstaller --static-linking --clean pyinstaller/spec/async_lite_gms.spec
 
     if [ $? -eq 0 ]; then
         outputPath="$projectRoot/dist/async_lite_gms"
