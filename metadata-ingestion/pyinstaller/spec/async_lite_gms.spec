@@ -40,15 +40,7 @@ a = Analysis([main_script],
                  (zeta_lab_path, 'zeta_lab'),
                  (datahub_path, 'datahub')
              ],
-             hiddenimports=[
-                 'uvicorn',
-                 'fastapi',
-                 'starlette',
-                 'pydantic',
-                 'asyncio',
-                 'uvloop',
-                 'httptools',
-             ],
+             hiddenimports=[],
              hookspath=[],
              hooksconfig={},
              runtime_hooks=[],
@@ -57,17 +49,7 @@ a = Analysis([main_script],
              win_private_assemblies=False,
              noarchive=False)
 
-# 필요한 시스템 라이브러리 추가
-import sysconfig
-lib_dir = sysconfig.get_config_var('LIBDIR')
-if lib_dir:
-    for lib in ['libm.so.6', 'libc.so.6', 'libpthread.so.0']:
-        lib_path = os.path.join(lib_dir, lib)
-        if os.path.exists(lib_path):
-            a.binaries.append((lib, lib_path, 'BINARY'))
-
-# 압축 없이 PYZ 생성
-pyz = PYZ(a.pure, a.zipped_data, compress=False)
+pyz = PYZ(a.pure, a.zipped_data)
 
 # 아이콘 경로 설정 (Windows에서만 사용)
 icon_path = os.path.join(base_path, 'pyinstaller', 'spec', 'async_lite_gms.ico') if is_windows else None
@@ -82,7 +64,7 @@ exe = EXE(pyz,
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
-          upx=False,
+          upx=True,
           upx_exclude=[],
           runtime_tmpdir=None,
           console=True,
