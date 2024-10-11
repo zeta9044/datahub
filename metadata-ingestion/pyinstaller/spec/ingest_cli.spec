@@ -53,6 +53,7 @@ a = Analysis([main_script],
 # 필요한 시스템 라이브러리 추가
 import sysconfig
 lib_dir = sysconfig.get_config_var('LIBDIR')
+print("lib_dir:"+lib_dir)
 if lib_dir:
     for lib in ['libm.so.6', 'libc.so.6', 'libpthread.so.0']:
         lib_path = os.path.join(lib_dir, lib)

@@ -24,11 +24,12 @@ zeta_lab_path = next((path for path in possible_paths if os.path.exists(path)), 
 
 if zeta_lab_path is None:
     raise FileNotFoundError("zeta_lab 디렉토리를 찾을 수 없습니다.")
-
+print('zeta_lab_path:',zeta_lab_path)
 datahub_path = os.path.join(os.path.dirname(zeta_lab_path), 'datahub')
+print('datahub_path:',datahub_path)
 
 # 메인 스크립트 경로
-main_script = os.path.join(zeta_lab_path, 'async_lite_gms.py')
+main_script = os.path.join(zeta_lab_path, 'ingest_cli.py')
 
 if not os.path.exists(main_script):
     raise FileNotFoundError(f"메인 스크립트를 찾을 수 없습니다: {main_script}")
@@ -40,15 +41,7 @@ a = Analysis([main_script],
                  (zeta_lab_path, 'zeta_lab'),
                  (datahub_path, 'datahub')
              ],
-             hiddenimports=[
-                 'uvicorn',
-                 'fastapi',
-                 'starlette',
-                 'pydantic',
-                 'asyncio',
-                 'uvloop',
-                 'httptools',
-             ],
+             hiddenimports=[],
              hookspath=[],
              hooksconfig={},
              runtime_hooks=[],
@@ -61,7 +54,7 @@ a = Analysis([main_script],
 pyz = PYZ(a.pure, a.zipped_data, compress=False)
 
 # 아이콘 경로 설정 (Windows에서만 사용)
-icon_path = os.path.join(base_path, 'pyinstaller', 'spec', 'async_lite_gms.ico') if is_windows else None
+icon_path = os.path.join(base_path, 'pyinstaller','spec', 'ingest_cli.ico') if is_windows else None
 
 exe = EXE(pyz,
           a.scripts,
@@ -69,7 +62,7 @@ exe = EXE(pyz,
           a.zipfiles,
           a.datas,
           [],
-          name='async_lite_gms',
+          name='ingest_cli',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
