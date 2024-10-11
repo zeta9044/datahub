@@ -253,7 +253,10 @@ class ConvertQtrackSource(Source):
     def get_ais0102_data(self, table_urn: str, query_custom_keys: Dict) -> Tuple:
         query = """
             SELECT prj_id, file_id, sql_id, table_id, obj_id, func_id, 
-                   COALESCE(sql_obj_type, '') as sql_obj_type,
+                   CASE 
+                    WHEN LOWER(table_urn) LIKE '%s3://%' THEN 'fil'
+                    ELSE COALESCE(sql_obj_type, '')
+                   END AS sql_obj_type,
                    COALESCE(table_urn, '') as table_urn,
                    COALESCE(system_biz_id, '') as system_biz_id,
                    COALESCE(system_tgt_srv_id, '') as system_tgt_srv_id,
