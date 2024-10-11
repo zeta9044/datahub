@@ -303,7 +303,10 @@ class ConvertQtrackSource(Source):
         query = """
             SELECT a.prj_id, a.file_id, a.sql_id, a.table_id, a.col_id, 
                    a.obj_id, a.func_id, 
-                   COALESCE(b.sql_obj_type, '') as sql_obj_type,
+                   CASE 
+                        WHEN LOWER(b.table_urn) LIKE '%s3://%' THEN 'fil'
+                        ELSE COALESCE(b.sql_obj_type, '')
+                   END AS sql_obj_type,
                    COALESCE(a.column_urn, '') as column_urn,
                    COALESCE(a.transform_operation, '') as transform_operation,
                    COALESCE(b.system_biz_id, '') as system_biz_id
