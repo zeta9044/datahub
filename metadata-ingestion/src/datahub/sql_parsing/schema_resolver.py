@@ -1,6 +1,7 @@
 import contextlib
 import pathlib
 from typing import Dict, List, Optional, Protocol, Set, Tuple
+from datahub.sql_parsing.schema_misc import normalize_table_name
 
 from typing_extensions import TypedDict
 
@@ -19,6 +20,8 @@ from datahub.utilities.file_backed_collections import ConnectionWrapper, FileBac
 from datahub.utilities.urns.field_paths import get_simple_field_path_from_v2_field_path
 import re
 import logging
+
+from unit.api.source_helpers.test_incremental_lineage_helper import platform
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +99,12 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
 
     def get_urn_for_table(self, table: _TableName, lower: bool = False) -> str:
         # TODO: Validate that this is the correct 2/3 layer hierarchy for the platform.
-
+        catalog_name, schema_name, table_name = normalize_table_name(table_name=table.table,
+                                                                     default_schema=table.db_schema,
+                                                                     default_catalog=table.database,
+                                                                     platform=self.platform)
         table_name = ".".join(
-            filter(None, [table.database, table.db_schema, table.table])
+            filter(None, [catalog_name, schema_name, table_name])
         )
 
         platform_instance = self.platform_instance
@@ -125,7 +131,7 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
     def resolve_table(self, table: _TableName) -> Tuple[str, Optional[SchemaInfo]]:
         urn = self.get_urn_for_table(table)
 
-        found_urn = self.find_urn_in_cache(self.platform,table.table,self.env)
+        found_urn = self.find_urn_in_cache(self.platform, table.table, self.env)
         if found_urn:
             urn = found_urn
 
