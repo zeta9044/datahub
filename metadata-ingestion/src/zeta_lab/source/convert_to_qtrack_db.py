@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 import os
 import logging
@@ -388,9 +389,21 @@ class ConvertQtrackSource(Source):
         obj_id = int(query_custom_keys.get('obj_id', 0))
         func_id = int(query_custom_keys.get('func_id', 0))
         query_type = query_custom_keys.get('query_type', '')
+        query_type_props_str = query_custom_keys.get('query_type_props', '{}')
 
-        query_type_props = query_custom_keys.get('query_type_props', {})
-        sql_obj_type = '$TB' if query_type_props.get('temporary', False) else 'TBL'
+        # query_type_props가 문자열이므로 JSON 형식으로 파싱
+        if isinstance(query_type_props_str, str):
+            try:
+                query_type_props = json.loads(query_type_props_str)
+            except json.JSONDecodeError:
+                query_type_props = {}  # 파싱 오류 시 기본값으로 빈 딕셔너리 사용
+        else:
+            query_type_props = query_type_props_str  # 이미 딕셔너리인 경우 그대로 사용
+
+        # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
+        TEMPORARY_TABLE = '$TB'
+        REGULAR_TABLE = 'TBL'
+        sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
 
         self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
                             upstream_urn, sql_obj_type, upstream_table_id, upstream_properties)
