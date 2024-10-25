@@ -53,6 +53,7 @@ framework_common = {
     "jsonref",
     "jsonschema",
     "ruamel.yaml",
+    "pyinstaller==6.1.0",
 }
 
 pydantic_no_v2 = {
