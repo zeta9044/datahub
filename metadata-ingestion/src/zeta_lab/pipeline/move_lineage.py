@@ -45,10 +45,7 @@ def move_lineage(gms_server_url,prj_id):
 
         # lineage.db path
         lineage_path = os.path.join(prj_repo_path,'lineage.db')
-        if os.path.exists(lineage_path):
-            os.remove(lineage_path)
-            print(f"{lineage_path} has been removed.")
-        else:
+        if not os.path.exists(lineage_path):
             raise ValueError("lineage.db file does not exist.")
 
         host_port, database, username, password = extract_db_info(
