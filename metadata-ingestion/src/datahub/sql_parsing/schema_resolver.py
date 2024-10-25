@@ -21,8 +21,6 @@ from datahub.utilities.urns.field_paths import get_simple_field_path_from_v2_fie
 import re
 import logging
 
-from unit.api.source_helpers.test_incremental_lineage_helper import platform
-
 logger = logging.getLogger(__name__)
 
 # A lightweight table schema: column -> type mapping.
