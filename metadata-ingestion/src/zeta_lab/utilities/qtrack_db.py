@@ -393,7 +393,7 @@ def populate_ais0080(conn: Any):
                 system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
             )
             SELECT DISTINCT
-                prj_id, table_id, sql_obj_type, table_urn, 
+                prj_id, file_id, sql_obj_type, table_urn, 
                 system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
             FROM ais0102
         """)
@@ -406,9 +406,9 @@ def populate_ais0080(conn: Any):
                 cond_mapping_bit, mapping_kind
             )
             SELECT DISTINCT
-                prj_id, owner_name, caps_table_name, table_name, sql_obj_type, cast(table_id as VARCHAR), 
+                prj_id, owner_name, caps_table_name, table_name, sql_obj_type, cast(file_id as VARCHAR), 
                 unique_owner_tgt_srv_id, system_biz_id,
-                call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type, cast(call_table_id as VARCHAR),
+                call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type, cast(call_file_id as VARCHAR),
                 call_unique_owner_tgt_srv_id, call_system_biz_id,
                 cond_mapping_bit, mapping_kind
             FROM ais0112
@@ -513,10 +513,10 @@ def populate_ais0081(conn: Any):
                 cond_mapping, mapping_kind, data_maker
             )
             SELECT DISTINCT
-                prj_id, owner_name, caps_table_name, table_name,sql_obj_type, cast(table_id as VARCHAR),
+                prj_id, owner_name, caps_table_name, table_name,sql_obj_type, cast(file_id as VARCHAR),
                 caps_col_name, col_name, col_value_yn,col_id,
                 unique_owner_tgt_srv_id, system_biz_id,
-                call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, cast(call_table_id as VARCHAR),
+                call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, cast(call_file_id as VARCHAR),
                 call_caps_col_name, call_col_name, call_col_value_yn,call_col_id,
                 call_unique_owner_tgt_srv_id, call_system_biz_id,
                 cond_mapping, mapping_kind, data_maker
