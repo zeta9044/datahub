@@ -590,10 +590,10 @@ def populate_ais0081(conn: Any):
                 conn.execute("DROP TABLE batch")
 
             conn.execute("COMMIT")
-            print(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
+            logger.info(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
         except Exception as e:
             conn.execute("ROLLBACK")
-            print(f"Error occurred: {str(e)}. Rolling back changes.")
+            logger.error(f"Error occurred: {str(e)}. Rolling back changes.")
             raise
 
     except duckdb.Error as e:

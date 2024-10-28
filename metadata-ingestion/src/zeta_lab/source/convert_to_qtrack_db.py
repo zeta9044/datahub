@@ -694,7 +694,7 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    self.logger.debug(f"Inserted {len(batch)} records into ais0102")
+                    self.logger.info(f"Inserted {len(batch)} records into ais0102")
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
@@ -783,7 +783,7 @@ class ConvertQtrackSource(Source):
                     for query in delete_queries:
                         await asyncio.to_thread(cur.execute, query, (prj_id,))
                         deleted_rows = cur.rowcount
-                        self.logger.debug(f"Deleted {deleted_rows} rows using query: {query}")
+                        self.logger.info(f"Deleted {deleted_rows} rows using query: {query}")
 
                     await asyncio.to_thread(conn.commit)
                     self.logger.info("Successfully deleted existing records from ais0080 and ais0081")
@@ -826,7 +826,7 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.info(f"Inserted {len(batch)} records into {table_name}")
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
@@ -882,7 +882,7 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.info(f"Inserted {len(batch)} records into {table_name}")
                 except Exception as e:
                     self.logger.error(f"Error inserting batch into {table_name}: {e}")
                     self.logger.error(f"Problematic row: {converted_batch[0]}")
