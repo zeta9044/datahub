@@ -11,7 +11,6 @@ from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
