@@ -234,8 +234,7 @@ def create_ais0080(conn: Any):
             src_biz_nm VARCHAR,
             tgt_biz_nm VARCHAR,
             src_system_biz_nm VARCHAR,
-            tgt_system_biz_nm VARCHAR,
-            PRIMARY KEY (src_prj_id, src_mte_table_id, tgt_prj_id, tgt_mte_table_id)
+            tgt_system_biz_nm VARCHAR
         )
     """)
     logger.info("Table 'ais0080' created.")
@@ -264,8 +263,7 @@ def create_ais0080_work(conn: Any):
                 tgt_owner_tgt_srv_id VARCHAR,
                 tgt_system_biz_id VARCHAR,
                 cond_mapping_bit INTEGER,
-                mapping_kind VARCHAR,                
-                PRIMARY KEY (src_prj_id, src_mte_table_id, tgt_prj_id, tgt_mte_table_id)
+                mapping_kind VARCHAR                
             )
         """)
     logger.info("Table 'ais0080_work' created.")
@@ -319,8 +317,7 @@ def create_ais0081(conn: Any):
             src_biz_nm VARCHAR,
             tgt_biz_nm VARCHAR,
             src_system_biz_nm VARCHAR,
-            tgt_system_biz_nm VARCHAR,
-            PRIMARY KEY (src_prj_id, src_mte_table_id, src_mte_col_id, tgt_prj_id, tgt_mte_table_id,tgt_mte_col_id)
+            tgt_system_biz_nm VARCHAR
         )
     """)
     logger.info("Table 'ais0081' created.")
@@ -358,8 +355,7 @@ def create_ais0081_work(conn: Any):
             tgt_system_biz_id VARCHAR,
             cond_mapping INTEGER,
             mapping_kind VARCHAR,
-            data_maker VARCHAR,
-            PRIMARY KEY (src_prj_id, src_mte_table_id, src_mte_col_id, tgt_prj_id, tgt_mte_table_id,tgt_mte_col_id)
+            data_maker VARCHAR
         )
     """)
     logger.info("Table 'ais0081_work' created.")
