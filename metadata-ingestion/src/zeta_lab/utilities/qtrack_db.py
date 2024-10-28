@@ -389,7 +389,7 @@ def populate_ais0080(conn: Any):
     try:
         conn.execute("""
             INSERT OR REPLACE INTO ais0102_work (
-                prj_id, table_id, sql_obj_type, table_urn, 
+                prj_id, file_id, sql_obj_type, table_urn, 
                 system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
             )
             SELECT DISTINCT
@@ -426,9 +426,9 @@ def populate_ais0080(conn: Any):
         FROM
             ais0080_work w80
         LEFT JOIN
-            ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.table_id
+            ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.file_id
         LEFT JOIN
-            ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.table_id
+            ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.file_id
         """
 
         # 쿼리 실행 및 데이터 가져오기
@@ -541,9 +541,9 @@ def populate_ais0081(conn: Any):
         FROM
             ais0081_work w81
         LEFT JOIN
-            ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.table_id
+            ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.file_id
         LEFT JOIN
-            ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.table_id
+            ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.file_id
         """
 
         # 쿼리 실행 및 데이터 가져오기
