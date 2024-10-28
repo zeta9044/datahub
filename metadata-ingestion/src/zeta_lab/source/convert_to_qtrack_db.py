@@ -11,7 +11,6 @@ import psycopg2.extras
 import requests
 from psycopg2 import pool
 
-from datahub.cli.specific.structuredproperties_cli import properties
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
