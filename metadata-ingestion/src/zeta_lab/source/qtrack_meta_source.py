@@ -11,7 +11,6 @@ from zeta_lab.metadata.make_metadata import (
     create_metadata_from_duckdb,
 )
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class QtrackMetaSourceConfig(ConfigModel):
