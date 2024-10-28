@@ -403,12 +403,17 @@ class ConvertQtrackSource(Source):
         # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
         TEMPORARY_TABLE = '$TB'
         REGULAR_TABLE = 'TBL'
-        sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
+        FILE_TABLE = 'FIL'
+        upstream_sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
+        upstream_sql_obj_type = FILE_TABLE if 's3://' in upstream_urn else upstream_sql_obj_type
+        downstream_sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
+        downstream_sql_obj_type = FILE_TABLE if 's3://' in downstream else downstream_sql_obj_type
+
 
         self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
-                            upstream_urn, sql_obj_type, upstream_table_id, upstream_properties)
+                            upstream_urn, upstream_sql_obj_type, upstream_table_id, upstream_properties)
         self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
-                            downstream, sql_obj_type, downstream_table_id, downstream_properties)
+                            downstream, downstream_sql_obj_type, downstream_table_id, downstream_properties)
 
     def insert_ais0102(self, prj_id: str, file_id: int, sql_id: int, obj_id: int, func_id: int,
                        query_type: str, table_urn: str, sql_obj_type: str, table_id: int, properties: Dict) -> None:
@@ -533,6 +538,10 @@ class ConvertQtrackSource(Source):
         self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
 
         try:
+
+            # Transfer ais0102
+            await self.transfer_ais0102()
+
             # Transfer ais0112
             await self.transfer_table('ais0112')
 
@@ -552,6 +561,148 @@ class ConvertQtrackSource(Source):
             self.logger.error(f"Error during transfer to PostgreSQL: {e}")
 
         self.logger.info("Completed asynchronous batch transfer to PostgreSQL")
+
+    async def transfer_ais0102(self):
+        self.logger.info("Transferring ais0102 to PostgreSQL")
+
+        # Get total count
+        total_count = self.duckdb_conn.execute("SELECT COUNT(*) FROM ais0102").fetchone()[0]
+
+        offset = 0
+        sem = asyncio.Semaphore(self.max_workers)
+        tasks = []
+
+        while offset < total_count:
+            # Fetch batch from DuckDB
+            query = f"""
+                SELECT 
+                    prj_id, file_id, sql_id, table_id, obj_id, func_id,
+                    query_type, sql_obj_type, table_urn
+                FROM ais0102 
+                LIMIT {self.batch_size} 
+                OFFSET {offset}
+            """
+            batch = self.duckdb_conn.execute(query).fetchall()
+
+            if not batch:
+                break
+
+            # Process batch
+            processed_batch = []
+            for row in batch:
+                prj_id, file_id, sql_id, table_id, obj_id, func_id, \
+                    query_type, sql_obj_type, table_urn = row
+
+                # Process table_urn to get table_name
+                try:
+                    dataset_urn = DatasetUrn.from_string(table_urn)
+                    table_content = dataset_urn.get_dataset_name()
+                    table_name = NameUtil.get_table_name(table_content)
+                    caps_table_name = table_name.upper()
+                    owner_name = NameUtil.get_schema(table_content)
+                    unique_owner_name = NameUtil.get_unique_owner_name(table_content)
+                    unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(table_content)
+                except Exception as e:
+                    self.logger.error(f"Error processing table_urn {table_urn}: {e}")
+                    continue
+
+                # Process query_type
+                pg_query_type = query_type[0] if query_type else None
+                if pg_query_type == 'I':
+                    pg_query_type = 'C'
+
+                # Set sql_state based on query_type
+                sql_state_map = {
+                    'C': 'INSERT',
+                    'S': 'SELECT',
+                    'I': 'INSERT',
+                    'U': 'UPDATE',
+                    'D': 'DELETE'
+                }
+                sql_state = sql_state_map.get(query_type[0] if query_type else '', None)
+
+                # Prepare row for PostgreSQL
+                processed_row = (
+                    prj_id,                     # prj_id
+                    float(file_id),             # file_id
+                    float(sql_id),              # sql_id
+                    float(table_id),            # table_id
+                    float(obj_id),              # obj_id
+                    float(func_id),             # func_id
+                    table_name,                 # table_name
+                    caps_table_name,            # caps_table_name
+                    owner_name,                 # owner_name
+                    pg_query_type,              # query_type
+                    None,                       # query_line_no
+                    sql_obj_type,               # sql_obj_type
+                    None,                       # inlineview_yn
+                    None,                       # dblink_name
+                    None,                       # table_alias_name
+                    None,                       # inlineview_src
+                    sql_state,                  # sql_state
+                    None,                       # column_no
+                    None,                       # table_depth
+                    None,                       # table_order_no
+                    None,                       # rel_table_id
+                    None,                       # rel_flow_id
+                    None,                       # dbc_mapping_yn
+                    None,                       # teradata_sql_id
+                    unique_owner_name,          # unique_owner_name
+                    unique_owner_tgt_srv_id,    # unique_owner_tgt_srv_id
+                    None,                       # sql_name
+                    None,                       # system_biz_id
+                    None                        # fl_tbl_uid
+                )
+                processed_batch.append(processed_row)
+
+            # Create and start task for batch insert
+            if processed_batch:
+                task = asyncio.create_task(self.insert_ais0102_batch(sem, processed_batch))
+                tasks.append(task)
+
+            offset += self.batch_size
+            self.logger.info(f"Created task for {min(offset, total_count)}/{total_count} records for ais0102")
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
+
+    async def insert_ais0102_batch(self, sem: asyncio.Semaphore, batch: List[Tuple]):
+        async with sem:
+            insert_query = """
+                INSERT INTO ais0102 (
+                    prj_id, file_id, sql_id, table_id, obj_id, func_id,
+                    table_name, caps_table_name, owner_name, query_type,
+                    query_line_no, sql_obj_type, inlineview_yn, dblink_name,
+                    table_alias_name, inlineview_src, sql_state, column_no,
+                    table_depth, table_order_no, rel_table_id, rel_flow_id,
+                    dbc_mapping_yn, teradata_sql_id, unique_owner_name,
+                    unique_owner_tgt_srv_id, sql_name, system_biz_id, fl_tbl_uid
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                ON CONFLICT DO NOTHING
+            """
+
+            conn = await asyncio.to_thread(self.pg_pool.getconn)
+            try:
+                cur = await asyncio.to_thread(conn.cursor)
+                try:
+                    await asyncio.to_thread(
+                        psycopg2.extras.execute_batch,
+                        cur, insert_query, batch, page_size=100
+                    )
+                    await asyncio.to_thread(conn.commit)
+                    self.logger.debug(f"Inserted {len(batch)} records into ais0102")
+                finally:
+                    await asyncio.to_thread(cur.close)
+            except Exception as e:
+                await asyncio.to_thread(conn.rollback)
+                self.logger.error(f"Error inserting batch into ais0102: {e}")
+            finally:
+                await asyncio.to_thread(self.pg_pool.putconn, conn)
 
     async def transfer_table(self, table_name: str):
         self.logger.info(f"Transferring {table_name} to PostgreSQL")
