@@ -1,8 +1,9 @@
 import os
-
+import logging
 from zeta_lab.utilities.tool import get_server_pid
 from datahub.ingestion.run.pipeline import Pipeline
 
+logger = logging.getLogger(__name__)
 
 def extract_lineage(gms_server_url, prj_id):
     """
