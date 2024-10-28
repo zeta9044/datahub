@@ -19,6 +19,7 @@ from datahub.metadata.schema_classes import (
 )
 from zeta_lab.utilities.tool import format_time, infer_type_from_native
 
+logger = logging.getLogger(__name__)
 
 def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
     """
