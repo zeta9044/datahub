@@ -1,5 +1,8 @@
 import os
+import logging
 from datahub.ingestion.run.pipeline import Pipeline
+
+logger = logging.getLogger(__name__)
 
 def make_sqlsrc(prj_id):
     """
