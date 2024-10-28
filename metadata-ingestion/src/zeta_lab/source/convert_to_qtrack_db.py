@@ -16,10 +16,9 @@ from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist, populate_ais0080, \
-    populate_ais0081
+from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
-    get_system_name, get_biz_id, get_biz_name
+    get_system_name, get_biz_id, get_biz_name, get_db_name, get_schema_name
 
 
 class ConvertQtrackSource(Source):
@@ -122,8 +121,8 @@ class ConvertQtrackSource(Source):
         self.logger.info(f"Processed {len(results)} lineage records")
 
         # populate ais0080,ais0081
-        populate_ais0080(self.duckdb_conn)
-        populate_ais0081(self.duckdb_conn)
+        self.populate_ais0080()
+        self.populate_ais0081()
 
         # After processing all lineage records
         self.logger.info("Starting asynchronous transfer to PostgreSQL")
@@ -533,6 +532,226 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             self.logger.error(f"Error creating virtual column lineage: {e}")
 
+    def populate_ais0080(self):
+        self.logger.info("Populating ais0080 from ais0112")
+        try:
+            self.duckdb_conn.execute("""
+                INSERT INTO ais0102_work (
+                    prj_id, file_id, sql_obj_type, table_urn, 
+                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
+                )
+                SELECT DISTINCT
+                    prj_id, file_id, sql_obj_type, table_urn, 
+                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
+                FROM ais0102
+            """)
+            self.duckdb_conn.execute("""
+                INSERT INTO ais0080_work (
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                    src_owner_tgt_srv_id, src_system_biz_id,
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_mte_table_id,
+                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                    cond_mapping_bit, mapping_kind
+                )
+                SELECT DISTINCT
+                    prj_id, owner_name, caps_table_name, table_name, sql_obj_type, cast(file_id as VARCHAR), 
+                    unique_owner_tgt_srv_id, system_biz_id,
+                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type, cast(call_file_id as VARCHAR),
+                    call_unique_owner_tgt_srv_id, call_system_biz_id,
+                    cond_mapping_bit, mapping_kind
+                FROM ais0112
+            """)
+
+            # SQL 쿼리
+            sql_query = """
+            SELECT
+                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, w80.src_mte_table_id, 
+                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, w80.tgt_mte_table_id, 
+                w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
+                src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
+                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
+                src.system_name AS src_system_nm, tgt.system_name AS tgt_system_nm, src.biz_name AS src_biz_nm, tgt.biz_name AS tgt_biz_nm
+            FROM
+                ais0080_work w80
+            LEFT JOIN
+                ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.file_id
+            LEFT JOIN
+                ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.file_id
+            """
+
+            # 쿼리 실행 및 데이터 가져오기
+            df = self.duckdb_conn.execute(sql_query).df()
+
+            # Python 함수 적용
+            df['src_db_instance_org'] = df['src_table_urn'].apply(get_db_name)
+            df['src_schema_org'] = df['src_table_urn'].apply(get_schema_name)
+            df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
+            df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
+
+            # src_system_biz_nm과 tgt_system_biz_nm 계산
+            df['src_system_biz_nm'] = None
+            df['tgt_system_biz_nm'] = None
+
+            # ais0080 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
+            columns_order = [
+                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
+                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping_bit', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id',
+                'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
+                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',
+                'src_system_nm', 'tgt_system_nm', 'src_biz_nm', 'tgt_biz_nm', 'src_system_biz_nm', 'tgt_system_biz_nm'
+            ]
+
+            df_insert = df[columns_order]
+
+            # 결과를 ais0080 테이블에 batch로 삽입
+            batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
+
+            try:
+                self.duckdb_conn.execute("BEGIN TRANSACTION")
+
+                for i in range(0, len(df_insert), batch_size):
+                    batch = df_insert.iloc[i:i+batch_size]
+
+                    # DuckDB의 SQL 구문을 사용하여 batch insert
+                    insert_query = f"""
+                        INSERT INTO ais0080 ({', '.join(batch.columns)})
+                        SELECT * FROM batch
+                    """
+
+                    # batch를 임시 테이블로 생성하고 insert
+                    self.duckdb_conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
+                    self.duckdb_conn.execute(insert_query)
+                    self.duckdb_conn.execute("DROP TABLE batch")
+
+                self.duckdb_conn.execute("COMMIT")
+                self.logger.info(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
+            except Exception as e:
+                self.duckdb_conn.execute("ROLLBACK")
+                self.logger.error(f"Error occurred: {str(e)}. Rolling back changes.")
+                raise
+
+        except duckdb.Error as e:
+            self.logger.error(f"Error populating ais0080: {e}")
+
+
+    def populate_ais0081(self):
+        self.logger.info("Populating ais0081 from ais0113")
+        try:
+            self.duckdb_conn.execute("""
+                CREATE TABLE IF NOT EXISTS ais0081_work AS 
+                SELECT
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                    src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
+                    src_owner_tgt_srv_id, src_system_biz_id,
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
+                    tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
+                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                    cond_mapping, mapping_kind, data_maker
+                FROM ais0081
+            """)
+            self.duckdb_conn.execute("""
+                INSERT INTO ais0081_work (
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                    src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
+                    src_owner_tgt_srv_id, src_system_biz_id,
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
+                    tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
+                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
+                    cond_mapping, mapping_kind, data_maker
+                )
+                SELECT DISTINCT
+                    prj_id, owner_name, caps_table_name, table_name,sql_obj_type, cast(file_id as VARCHAR),
+                    caps_col_name, col_name, col_value_yn,col_id,
+                    unique_owner_tgt_srv_id, system_biz_id,
+                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, cast(call_file_id as VARCHAR),
+                    call_caps_col_name, call_col_name, call_col_value_yn,call_col_id,
+                    call_unique_owner_tgt_srv_id, call_system_biz_id,
+                    cond_mapping, mapping_kind, data_maker
+                FROM ais0113
+            """)
+
+            # SQL 쿼리
+            sql_query = """
+            SELECT
+                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, w81.src_mte_table_id,
+                case when w81.src_caps_col_name=='*' then '[*+*]' else w81.src_caps_col_name end as src_caps_col_name , 
+                case when w81.src_col_name=='*' then '[*+*]' else w81.src_col_name end as src_col_name , 
+                w81.src_col_value_yn, w81.src_mte_col_id, 
+                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, w81.tgt_mte_table_id,
+                case when w81.tgt_caps_col_name=='*' then '[*+*]' else w81.tgt_caps_col_name end as tgt_caps_col_name , 
+                case when w81.tgt_col_name=='*' then '[*+*]' else w81.tgt_col_name end as tgt_col_name , 
+                w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
+                w81.src_owner_tgt_srv_id, w81.tgt_owner_tgt_srv_id, w81.cond_mapping, w81.mapping_kind, w81.src_system_biz_id, w81.tgt_system_biz_id, w81.data_maker,
+                src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
+                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
+                src.system_name AS src_system_nm, tgt.system_name AS tgt_system_nm, src.biz_name AS src_biz_nm, tgt.biz_name AS tgt_biz_nm
+            FROM
+                ais0081_work w81
+            LEFT JOIN
+                ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.file_id
+            LEFT JOIN
+                ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.file_id
+            """
+
+            # 쿼리 실행 및 데이터 가져오기
+            df = self.duckdb_conn.execute(sql_query).df()
+
+            # Python 함수 적용
+            df['src_db_instance_org'] = df['src_table_urn'].apply(get_db_name)
+            df['src_schema_org'] = df['src_table_urn'].apply(get_schema_name)
+            df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
+            df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
+
+            # src_system_biz_nm과 tgt_system_biz_nm 계산
+            df['src_system_biz_nm'] = None
+            df['tgt_system_biz_nm'] = None
+
+            # ais0081 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
+            columns_order = [
+                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
+                'src_caps_col_name', 'src_col_name', 'src_col_value_yn', 'src_mte_col_id',
+                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
+                'tgt_caps_col_name', 'tgt_col_name', 'tgt_col_value_yn', 'tgt_mte_col_id',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id', 'data_maker',
+                'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
+                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',
+                'src_system_nm', 'tgt_system_nm', 'src_biz_nm', 'tgt_biz_nm', 'src_system_biz_nm', 'tgt_system_biz_nm'
+            ]
+
+            df_insert = df[columns_order]
+
+            # 결과를 ais0081 테이블에 batch로 삽입
+            batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
+
+            try:
+                self.duckdb_conn.execute("BEGIN TRANSACTION")
+
+                for i in range(0, len(df_insert), batch_size):
+                    batch = df_insert.iloc[i:i+batch_size]
+
+                    # DuckDB의 SQL 구문을 사용하여 batch insert
+                    insert_query = f"""
+                        INSERT INTO ais0081 ({', '.join(batch.columns)})
+                        SELECT * FROM batch
+                    """
+
+                    # batch를 임시 테이블로 생성하고 insert
+                    self.duckdb_conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
+                    self.duckdb_conn.execute(insert_query)
+                    self.duckdb_conn.execute("DROP TABLE batch")
+
+                self.duckdb_conn.execute("COMMIT")
+                self.logger.info(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
+            except Exception as e:
+                self.duckdb_conn.execute("ROLLBACK")
+                self.logger.error(f"Error occurred: {str(e)}. Rolling back changes.")
+                raise
+
+        except duckdb.Error as e:
+            self.logger.error(f"Error populating ais0081: {e}")
+
+
     async def transfer_to_postgresql(self):
         self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
 
@@ -826,7 +1045,7 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    self.logger.info(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
                 finally:
                     await asyncio.to_thread(cur.close)
             except Exception as e:
@@ -882,7 +1101,7 @@ class ConvertQtrackSource(Source):
                         cur, insert_query, converted_batch, page_size=100
                     )
                     await asyncio.to_thread(conn.commit)
-                    self.logger.info(f"Inserted {len(batch)} records into {table_name}")
+                    self.logger.debug(f"Inserted {len(batch)} records into {table_name}")
                 except Exception as e:
                     self.logger.error(f"Error inserting batch into {table_name}: {e}")
                     self.logger.error(f"Problematic row: {converted_batch[0]}")
