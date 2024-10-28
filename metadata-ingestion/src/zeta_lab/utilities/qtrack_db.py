@@ -55,7 +55,7 @@ def create_ais0102_work(conn: Any):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ais0102_work (
             prj_id VARCHAR,
-            table_id INTEGER,
+            file_id INTEGER,
             sql_obj_type VARCHAR,
             table_urn VARCHAR,
             system_biz_id VARCHAR,
@@ -66,7 +66,7 @@ def create_ais0102_work(conn: Any):
             biz_id VARCHAR,
             biz_name VARCHAR,
             PRIMARY KEY (
-                prj_id, table_id, sql_obj_type, table_urn, 
+                prj_id, file_id, sql_obj_type, table_urn, 
                 system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
             )
         )
