@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 def safe_register(registry, name, class_):
     if name not in registry.mapping:
         registry.register(name, class_)
-        logger.info(f"Registered {name} in {registry.__class__.__name__}")
+        logger.debug(f"Registered {name} in {registry.__class__.__name__}")
     else:
-        logger.info(f"{name} already registered in {registry.__class__.__name__}")
+        logger.debug(f"{name} already registered in {registry.__class__.__name__}")
 
 # Register sources
 safe_register(source_registry, "sql-queries", SqlQueriesSource)
