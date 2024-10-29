@@ -595,8 +595,8 @@ class ConvertQtrackSource(Source):
             # SQL 쿼리
             sql_query = """
             SELECT
-                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, cast(w80.src_file_id as VARCHAR) as src_mte_table_id, 
-                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, cast(w80.tgt_file_id as VARCHAR) as tgt_mte_table_id, 
+                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_caps_table_name AS src_table_name_org, w80.src_table_type, cast(w80.src_file_id as VARCHAR) as src_mte_table_id, 
+                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_caps_table_name AS tgt_table_name_org, w80.tgt_table_type, cast(w80.tgt_file_id as VARCHAR) as tgt_mte_table_id, 
                 w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
                 src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
                 src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
@@ -680,11 +680,11 @@ class ConvertQtrackSource(Source):
             # SQL 쿼리
             sql_query = """
             SELECT
-                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, cast(w81.src_file_id as VARCHAR) as src_mte_table_id,
+                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_caps_table_name AS src_table_name_org, w81.src_table_type, cast(w81.src_file_id as VARCHAR) as src_mte_table_id,
                 case when w81.src_caps_col_name=='*' then '[*+*]' else w81.src_caps_col_name end as src_caps_col_name , 
                 case when w81.src_col_name=='*' then '[*+*]' else w81.src_col_name end as src_col_name , 
                 w81.src_col_value_yn, w81.src_mte_col_id, 
-                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, cast(w81.tgt_file_Id as VARCHAR ) as tgt_mte_table_id,
+                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_caps_table_name AS tgt_table_name_org, w81.tgt_table_type, cast(w81.tgt_file_Id as VARCHAR ) as tgt_mte_table_id,
                 case when w81.tgt_caps_col_name=='*' then '[*+*]' else w81.tgt_caps_col_name end as tgt_caps_col_name , 
                 case when w81.tgt_col_name=='*' then '[*+*]' else w81.tgt_col_name end as tgt_col_name , 
                 w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
