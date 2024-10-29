@@ -567,26 +567,26 @@ class ConvertQtrackSource(Source):
         try:
             self.duckdb_conn.execute("""
                 INSERT INTO ais0102_work (
-                    prj_id, file_id, sql_obj_type, table_urn, 
+                    prj_id, file_id, table_id,sql_obj_type, table_urn, 
                     system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
                 )
                 SELECT DISTINCT
-                    prj_id, file_id, sql_obj_type, table_urn, 
+                    prj_id, file_id, table_id,sql_obj_type, table_urn, 
                     system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
                 FROM ais0102
             """)
             self.duckdb_conn.execute("""
                 INSERT INTO ais0080_work (
-                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_file_id, src_mte_table_id,
                     src_owner_tgt_srv_id, src_system_biz_id,
-                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_mte_table_id,
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_file_id, tgt_mte_table_id,
                     tgt_owner_tgt_srv_id, tgt_system_biz_id,
                     cond_mapping_bit, mapping_kind
                 )
                 SELECT DISTINCT
-                    prj_id, owner_name, caps_table_name, table_name, sql_obj_type, cast(file_id as VARCHAR), 
+                    prj_id, owner_name, caps_table_name, table_name, sql_obj_type, file_id, cast(table_id as VARCHAR),
                     unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type, cast(call_file_id as VARCHAR),
+                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type,call_file_id, cast(call_table_id as VARCHAR),
                     call_unique_owner_tgt_srv_id, call_system_biz_id,
                     cond_mapping_bit, mapping_kind
                 FROM ais0112
@@ -595,18 +595,18 @@ class ConvertQtrackSource(Source):
             # SQL 쿼리
             sql_query = """
             SELECT
-                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, w80.src_mte_table_id, 
-                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, w80.tgt_mte_table_id, 
+                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_table_name AS src_table_name_org, w80.src_table_type, cast(w80.src_file_id as VARCHAR) as src_mte_table_id, 
+                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_table_name AS tgt_table_name_org, w80.tgt_table_type, cast(w80.tgt_file_id as VARCHAR) as tgt_mte_table_id, 
                 w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
                 src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
                 src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
                 src.system_name AS src_system_nm, tgt.system_name AS tgt_system_nm, src.biz_name AS src_biz_nm, tgt.biz_name AS tgt_biz_nm
             FROM
-                ais0080_work w80
+                ais0080_work w80 
             LEFT JOIN
-                ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.file_id
+                ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.table_id
             LEFT JOIN
-                ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.file_id
+                ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.table_id
             """
 
             # 쿼리 실행 및 데이터 가져오기
@@ -658,19 +658,19 @@ class ConvertQtrackSource(Source):
             """)
             self.duckdb_conn.execute("""
                 INSERT INTO ais0081_work (
-                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_file_id,src_mte_table_id,
                     src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
                     src_owner_tgt_srv_id, src_system_biz_id,
-                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_file_id,tgt_mte_table_id, 
                     tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
                     tgt_owner_tgt_srv_id, tgt_system_biz_id,
                     cond_mapping, mapping_kind, data_maker
                 )
                 SELECT DISTINCT
-                    prj_id, owner_name, caps_table_name, table_name,sql_obj_type, cast(file_id as VARCHAR),
+                    prj_id, owner_name, caps_table_name, table_name,sql_obj_type, file_id, cast(table_id as VARCHAR),
                     caps_col_name, col_name, col_value_yn,col_id,
                     unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, cast(call_file_id as VARCHAR),
+                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, call_file_id, cast(call_table_id as VARCHAR),
                     call_caps_col_name, call_col_name, call_col_value_yn,call_col_id,
                     call_unique_owner_tgt_srv_id, call_system_biz_id,
                     cond_mapping, mapping_kind, data_maker
@@ -680,11 +680,11 @@ class ConvertQtrackSource(Source):
             # SQL 쿼리
             sql_query = """
             SELECT
-                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, w81.src_mte_table_id,
+                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_table_name AS src_table_name_org, w81.src_table_type, cast(w81.src_file_id as VARCHAR) as src_mte_table_id,
                 case when w81.src_caps_col_name=='*' then '[*+*]' else w81.src_caps_col_name end as src_caps_col_name , 
                 case when w81.src_col_name=='*' then '[*+*]' else w81.src_col_name end as src_col_name , 
                 w81.src_col_value_yn, w81.src_mte_col_id, 
-                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, w81.tgt_mte_table_id,
+                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_table_name AS tgt_table_name_org, w81.tgt_table_type, cast(w81.tgt_file_Id as VARCHAR ) as tgt_mte_table_id,
                 case when w81.tgt_caps_col_name=='*' then '[*+*]' else w81.tgt_caps_col_name end as tgt_caps_col_name , 
                 case when w81.tgt_col_name=='*' then '[*+*]' else w81.tgt_col_name end as tgt_col_name , 
                 w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
@@ -695,9 +695,9 @@ class ConvertQtrackSource(Source):
             FROM
                 ais0081_work w81
             LEFT JOIN
-                ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.file_id
+                ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.table_id
             LEFT JOIN
-                ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.file_id
+                ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.table_id
             """
 
             # 쿼리 실행 및 데이터 가져오기

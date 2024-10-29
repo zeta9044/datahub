@@ -56,6 +56,7 @@ def create_ais0102_work(conn: Any):
         CREATE TABLE IF NOT EXISTS ais0102_work (
             prj_id VARCHAR,
             file_id INTEGER,
+            table_id INTEGER,
             sql_obj_type VARCHAR,
             table_urn VARCHAR,
             system_biz_id VARCHAR,
@@ -66,7 +67,7 @@ def create_ais0102_work(conn: Any):
             biz_id VARCHAR,
             biz_name VARCHAR,
             PRIMARY KEY (
-                prj_id, file_id, sql_obj_type, table_urn, 
+                prj_id, file_id, table_id,sql_obj_type, table_urn, 
                 system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
             )
         )
@@ -251,6 +252,7 @@ def create_ais0080_work(conn: Any):
                 src_caps_table_name VARCHAR,
                 src_table_name VARCHAR,
                 src_table_type VARCHAR,
+                src_file_id INTEGER,
                 src_mte_table_id VARCHAR,
                 src_owner_tgt_srv_id VARCHAR,
                 src_system_biz_id VARCHAR,
@@ -259,6 +261,7 @@ def create_ais0080_work(conn: Any):
                 tgt_caps_table_name VARCHAR,
                 tgt_table_name VARCHAR,
                 tgt_table_type VARCHAR,
+                tgt_file_id INTEGER,
                 tgt_mte_table_id VARCHAR,
                 tgt_owner_tgt_srv_id VARCHAR,
                 tgt_system_biz_id VARCHAR,
@@ -334,6 +337,7 @@ def create_ais0081_work(conn: Any):
             src_caps_table_name VARCHAR,
             src_table_name VARCHAR,
             src_table_type VARCHAR,
+            src_file_id INTEGER,
             src_mte_table_id VARCHAR,
             src_caps_col_name VARCHAR,
             src_col_name VARCHAR,
@@ -346,6 +350,7 @@ def create_ais0081_work(conn: Any):
             tgt_caps_table_name VARCHAR,
             tgt_table_name VARCHAR,
             tgt_table_type VARCHAR,
+            tgt_file_id INTEGER,
             tgt_mte_table_id VARCHAR,
             tgt_caps_col_name VARCHAR,
             tgt_col_name VARCHAR,
