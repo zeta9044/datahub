@@ -6,6 +6,7 @@ import logging
 from typing import List, Dict, Iterable, Tuple, Any
 
 import duckdb
+import pandas as pd
 import psycopg2
 import psycopg2.extras
 import requests
@@ -532,6 +533,35 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             self.logger.error(f"Error creating virtual column lineage: {e}")
 
+    def populate_table_with_batch(self, table_name: str, df_insert: pd.DataFrame, batch_size: int = 1000):
+        total_rows = len(df_insert)
+        processed_rows = 0
+
+        # 컬럼 목록 준비
+        columns = ', '.join(df_insert.columns)
+        placeholders = ', '.join(['?'] * len(df_insert.columns))  # DuckDB는 ? 를 placeholder로 사용
+
+        insert_query = f"""
+            INSERT INTO {table_name} ({columns})
+            VALUES ({placeholders})
+        """
+
+        while processed_rows < total_rows:
+            try:
+                # 현재 배치 준비
+                current_batch = df_insert.iloc[processed_rows:processed_rows + batch_size]
+                batch_values = [tuple(row) for row in current_batch.values]
+
+                # DuckDB batch insert
+                self.duckdb_conn.executemany(insert_query, batch_values)
+
+                processed_rows += len(current_batch)
+                self.logger.info(f"Processed {processed_rows}/{total_rows} rows for {table_name}")
+
+            except Exception as e:
+                self.logger.error(f"Error processing batch at row {processed_rows}: {e}")
+                raise
+
     def populate_ais0080(self):
         self.logger.info("Populating ais0080 from ais0112")
         try:
@@ -605,31 +635,7 @@ class ConvertQtrackSource(Source):
             df_insert = df[columns_order]
 
             # 결과를 ais0080 테이블에 batch로 삽입
-            batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
-
-            try:
-                self.duckdb_conn.execute("BEGIN TRANSACTION")
-
-                for i in range(0, len(df_insert), batch_size):
-                    batch = df_insert.iloc[i:i+batch_size]
-
-                    # DuckDB의 SQL 구문을 사용하여 batch insert
-                    insert_query = f"""
-                        INSERT INTO ais0080 ({', '.join(batch.columns)})
-                        SELECT * FROM batch
-                    """
-
-                    # batch를 임시 테이블로 생성하고 insert
-                    self.duckdb_conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
-                    self.duckdb_conn.execute(insert_query)
-                    self.duckdb_conn.execute("DROP TABLE batch")
-
-                self.duckdb_conn.execute("COMMIT")
-                self.logger.info(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0080.")
-            except Exception as e:
-                self.duckdb_conn.execute("ROLLBACK")
-                self.logger.error(f"Error occurred: {str(e)}. Rolling back changes.")
-                raise
+            self.populate_table_with_batch('ais0080', df_insert)
 
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0080: {e}")
@@ -722,31 +728,7 @@ class ConvertQtrackSource(Source):
             df_insert = df[columns_order]
 
             # 결과를 ais0081 테이블에 batch로 삽입
-            batch_size = 10000  # DuckDB는 더 큰 batch size를 효율적으로 처리할 수 있습니다
-
-            try:
-                self.duckdb_conn.execute("BEGIN TRANSACTION")
-
-                for i in range(0, len(df_insert), batch_size):
-                    batch = df_insert.iloc[i:i+batch_size]
-
-                    # DuckDB의 SQL 구문을 사용하여 batch insert
-                    insert_query = f"""
-                        INSERT INTO ais0081 ({', '.join(batch.columns)})
-                        SELECT * FROM batch
-                    """
-
-                    # batch를 임시 테이블로 생성하고 insert
-                    self.duckdb_conn.execute("CREATE TEMPORARY TABLE batch AS SELECT * FROM batch")
-                    self.duckdb_conn.execute(insert_query)
-                    self.duckdb_conn.execute("DROP TABLE batch")
-
-                self.duckdb_conn.execute("COMMIT")
-                self.logger.info(f"Data insertion completed successfully. {len(df_insert)} rows inserted into ais0081.")
-            except Exception as e:
-                self.duckdb_conn.execute("ROLLBACK")
-                self.logger.error(f"Error occurred: {str(e)}. Rolling back changes.")
-                raise
+            self.populate_table_with_batch('ais0081', df_insert)
 
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0081: {e}")
