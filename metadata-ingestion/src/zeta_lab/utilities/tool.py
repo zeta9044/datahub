@@ -251,8 +251,9 @@ def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
     # Get the corresponding DataHub type class
     type_class = type_mappings.get(base_type, None)
 
+    # default type is StringTypeClass
     if type_class is None:
-        raise ValueError(f"Unsupported native data type: {native_data_type}")
+        return SchemaFieldDataTypeClass(type=StringTypeClass())
 
     return SchemaFieldDataTypeClass(type=type_class())
 
