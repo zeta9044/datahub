@@ -1,8 +1,52 @@
 import os
+
+from datahub.ingestion.api.decorators import platform_name
 from zeta_lab.utilities.tool import get_server_pid
 from zeta_lab.utilities.common_logger import setup_logging, cleanup_logger
 from datahub.ingestion.run.pipeline import Pipeline
+import duckdb
 
+def get_meta_instance(db_path: str, prj_id: str) -> tuple:
+    """
+    DuckDB에서 meta_instance 테이블을 조회하여 첫 번째 결과를 반환합니다.
+
+    Args:
+        db_path (str): DuckDB 데이터베이스 파일 경로
+        prj_id (str): 조회할 job_id 값
+
+    Returns:
+        tuple: (platform, platform_instance, default_db, default_schema)
+
+    Raises:
+        ValueError: 조회 결과가 없을 경우 발생
+        Exception: 데이터베이스 연결 또는 쿼리 실행 중 오류 발생 시
+    """
+    try:
+        # DuckDB 연결
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # 쿼리 실행
+        query = """
+            SELECT platform, platform_instance, default_db, default_schema 
+            FROM main.meta_instance 
+            WHERE job_id = ?
+            LIMIT 1
+        """
+        result = conn.execute(query, [prj_id]).fetchone()
+
+        # 연결 종료
+        conn.close()
+
+        # 결과가 없으면 ValueError 발생
+        if result is None:
+            raise ValueError("collect job is not setting. please,complete setting.")
+
+        return result
+
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Error querying meta_instance: {str(e)}")
 
 def extract_lineage(gms_server_url, prj_id, log_file=None):
     """
@@ -36,6 +80,14 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
             raise ValueError(f"Project {prj_id} repository path does not exist.")
         logger.info(f"Repository path validated: {prj_repo_path}")
 
+        # platform,platform_instance,default_db,default_schema  through prj_id
+        metadatadb_path = os.path.join(engine_home, 'bin', 'metadata.db')
+        if not os.path.exists(metadatadb_path):
+            raise ValueError("metadata.db file does not exist.")
+
+        platform,platform_instance,default_db,default_schema = get_meta_instance(metadatadb_path,prj_id)
+        logger.info(platform,platform_instance,default_db,default_schema)
+
         # sqlsrc.json path
         sqlsrc_json_path = os.path.join(prj_repo_path, 'sqlsrc.json')
         if not os.path.exists(sqlsrc_json_path):
@@ -67,10 +119,10 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
                 "type": "sql-queries",
                 "config": {
                     "query_file": sqlsrc_json_path,
-                    "platform": "snowflake",
-                    "platform_instance": "na",
-                    "default_db": "na",
-                    "default_schema": "na",
+                    "platform": platform,
+                    "platform_instance": platform_instance,
+                    "default_db": default_db,
+                    "default_schema": default_schema,
                     "env": "PROD",
                 }
             },
