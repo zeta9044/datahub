@@ -232,16 +232,14 @@ def create_metadata_origin(conn):
             CREATE TABLE IF NOT EXISTS main.metadata_origin AS
             SELECT
                 LOWER(mi.platform) AS platform,
-                LOWER(mi.owner_srv_id || '.' || qmp.catalog_name || '.' || qmp.schema_name || '.' || qmp.table_name) AS schema_name,
+                LOWER(qmp.owner_srv_id || '.' || qmp.catalog_name || '.' || qmp.schema_name || '.' || qmp.table_name) AS schema_name,
                 LOWER(qmp.column_name) AS field_path,
                 LOWER(qmp.column_type) AS native_data_type,
                 LOWER(mi.tgt_srv_id) AS tgt_srv_id,
-                UPPER(mi.owner_srv_id) AS owner_srv_id,
-                UPPER(mi.system_id) AS system_id,
-                mi.system_name, 
-                UPPER(mi.biz_id) AS biz_id,
-                mi.biz_name,
-                UPPER(mi.system_biz_id) AS system_biz_id 
+                UPPER(qmp.owner_srv_id) AS owner_srv_id,
+                UPPER(qmp.system_id) AS system_id,
+                UPPER(qmp.biz_id) AS biz_id,
+                UPPER(qmp.system_biz_id) AS system_biz_id 
             FROM
                 main.meta_instance mi
             JOIN main.qt_meta_populator qmp ON
@@ -269,14 +267,7 @@ def create_metadata_table(conn):
                 "version" BIGINT,
                 metadata JSON,
                 system_metadata JSON,
-                createdon BIGINT,
-                tgt_srv_id VARCHAR,
-                owner_srv_id VARCHAR,
-                system_id VARCHAR,
-                system_name VARCHAR,
-                biz_id VARCHAR,
-                biz_name VARCHAR,
-                system_biz_id VARCHAR,
+                createdon BIGINT
                 PRIMARY KEY (urn, aspect_name, "version")
             );
         """
