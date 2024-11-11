@@ -40,7 +40,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
                         WHERE lcode = 'DATABASE_TYPE' 
                           AND mcode = 'DB_TYPE' 
                           AND scode = t3.db_type_cd) AS platform,
-                       t2.owner_srv_id AS owner_srv_id,
+                       t2.metapop_owner_srv_id AS owner_srv_id,
                        t2.metapop_system_id AS system_id,
                        t2.metapop_system_name AS system_name,
                        t2.metapop_biz_id AS biz_id,
