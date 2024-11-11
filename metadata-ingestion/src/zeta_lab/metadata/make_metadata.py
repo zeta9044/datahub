@@ -40,11 +40,11 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
                         WHERE lcode = 'DATABASE_TYPE' 
                           AND mcode = 'DB_TYPE' 
                           AND scode = t3.db_type_cd) AS platform,
-                       t2.metapop_owner_srv_id AS owner_srv_id,
+                       t2.metapop_owner_srv_id AS platform_instance,
+                       t2.metapop_inst_name AS default_db,
+                       t2.metapop_schema_name AS default_schema,
                        t2.metapop_system_id AS system_id,
-                       t2.metapop_system_name AS system_name,
                        t2.metapop_biz_id AS biz_id,
-                       t2.metapop_biz_name AS biz_name,
                        t2.metapop_system_id || '_' || t2.metapop_biz_id AS system_biz_id
                 FROM ais1024 t4
                 JOIN ais1022 t2 ON t4.owner_srv_id = t2.owner_srv_id
@@ -66,13 +66,13 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
             job_id TEXT,
             tgt_srv_id TEXT,
             platform TEXT,
-            owner_srv_id TEXT,
+            platform_instance TEXT,
+            default_db TEXT,
+            default_schema TEXT,            
             system_id TEXT,
-            system_name TEXT,
             biz_id TEXT,
-            biz_name TEXT,
             system_biz_id TEXT,
-            PRIMARY KEY (job_id, tgt_srv_id, owner_srv_id)
+            PRIMARY KEY (job_id, tgt_srv_id, platform_instance)
         )
         ''')
 
@@ -230,7 +230,7 @@ def create_metadata_origin(conn):
         drop_metadata_origin_table(conn)
         create_table_query = """
             CREATE TABLE IF NOT EXISTS main.metadata_origin AS
-            SELECT
+            SELECT DISTINCT
                 LOWER(mi.platform) AS platform,
                 LOWER(qmp.owner_srv_id || '.' || qmp.catalog_name || '.' || qmp.schema_name || '.' || qmp.table_name) AS schema_name,
                 LOWER(qmp.column_name) AS field_path,
