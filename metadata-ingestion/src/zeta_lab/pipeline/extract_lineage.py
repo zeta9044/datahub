@@ -1,6 +1,5 @@
 import os
 
-from datahub.ingestion.api.decorators import platform_name
 from zeta_lab.utilities.tool import get_server_pid
 from zeta_lab.utilities.common_logger import setup_logging, cleanup_logger
 from datahub.ingestion.run.pipeline import Pipeline
