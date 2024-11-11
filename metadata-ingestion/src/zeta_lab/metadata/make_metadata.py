@@ -346,9 +346,7 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
                 tgt_srv_id,
                 owner_srv_id,
                 system_id,
-                system_name, 
                 biz_id,
-                biz_name,
                 system_biz_id 
             FROM
                 main.metadata_origin
@@ -398,9 +396,7 @@ def create_metadata_from_duckdb(duckdb_path: str, json_output_path: Optional[str
                         "tgt_srv_id": first_row['tgt_srv_id'],
                         "owner_srv_id": first_row['owner_srv_id'],
                         "system_id": first_row['system_id'],
-                        "system_name": first_row['system_name'],
                         "biz_id": first_row['biz_id'],
-                        "biz_name": first_row['biz_name'],
                         "system_biz_id": first_row['system_biz_id']
                     }
                 )
