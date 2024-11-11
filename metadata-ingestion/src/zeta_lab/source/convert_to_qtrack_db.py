@@ -256,6 +256,7 @@ class ConvertQtrackSource(Source):
                    CASE 
                     WHEN LOWER(table_urn) LIKE '%s3://%' THEN 'fil'
                     WHEN LOWER(table_urn) LIKE '%_tmp%' THEN '$tb'
+                    WHEN LOWER(table_urn) LIKE '%_temp%' THEN '$tb'
                     WHEN LOWER(table_urn) LIKE '%_stage%' THEN '$tb'
                     ELSE COALESCE(sql_obj_type, '')
                    END AS sql_obj_type,
