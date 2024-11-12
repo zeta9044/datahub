@@ -19,7 +19,7 @@ from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
-    get_system_name, get_biz_id, get_biz_name, get_db_name, get_schema_name
+    get_biz_id, get_db_name, get_schema_name
 
 
 class ConvertQtrackSource(Source):
@@ -265,9 +265,7 @@ class ConvertQtrackSource(Source):
                    COALESCE(system_tgt_srv_id, '') as system_tgt_srv_id,
                    COALESCE(owner_srv_id, '') as owner_srv_id,
                    COALESCE(system_id, '') as system_id,
-                   COALESCE(system_name, '') as system_name,
-                   COALESCE(biz_id, '') as biz_id,
-                   COALESCE(biz_name, '') as biz_name
+                   COALESCE(biz_id, '') as biz_id
             FROM ais0102 
             WHERE table_urn = ? AND prj_id = ? AND file_id = ? AND sql_id = ? AND obj_id = ? AND func_id = ?
         """
@@ -369,7 +367,8 @@ class ConvertQtrackSource(Source):
                     self.logger.info(f"Successfully fetched dataset properties for {dataset_urn}")
                     return response.json()
                 else:
-                    self.logger.debug(f"Failed to get dataset properties for {dataset_urn}: HTTP {response.status_code}")
+                    self.logger.debug(
+                        f"Failed to get dataset properties for {dataset_urn}: HTTP {response.status_code}")
                     if response.status_code == 404:
                         self.logger.warning(f"Dataset not found: {dataset_urn}. Using empty properties.")
                         return {}  # Return empty dict if dataset not found
@@ -411,7 +410,6 @@ class ConvertQtrackSource(Source):
         downstream_sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
         downstream_sql_obj_type = FILE_TABLE if 's3://' in downstream else downstream_sql_obj_type
 
-
         self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
                             upstream_urn, upstream_sql_obj_type, upstream_table_id, upstream_properties)
         self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
@@ -423,18 +421,16 @@ class ConvertQtrackSource(Source):
         system_tgt_srv_id = get_system_tgt_srv_id(properties)
         owner_srv_id = get_owner_srv_id(properties)
         system_id = get_system_id(properties)
-        system_name = get_system_name(properties)
         biz_id = get_biz_id(properties)
-        biz_name = get_biz_name(properties)
 
         try:
             self.duckdb_conn.execute("""
                     INSERT OR REPLACE INTO ais0102 
-                    (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,system_name,biz_id,biz_name )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?)
+                    (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,biz_id )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
                 """, (
                 prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,
-                system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name))
+                system_tgt_srv_id, owner_srv_id, system_id, biz_id))
             self.logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
         except duckdb.Error as e:
             self.logger.error(f"Error inserting into ais0102: {e}")
@@ -571,11 +567,11 @@ class ConvertQtrackSource(Source):
             self.duckdb_conn.execute("""
                 INSERT INTO ais0102_work (
                     prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
+                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id,biz_id
                 )
                 SELECT DISTINCT
                     prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
+                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id,biz_id
                 FROM ais0102
             """)
             self.duckdb_conn.execute("""
@@ -602,8 +598,7 @@ class ConvertQtrackSource(Source):
                 w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_caps_table_name AS tgt_table_name_org, w80.tgt_table_type, cast(w80.tgt_file_id as VARCHAR) as tgt_mte_table_id, 
                 w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
                 src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
-                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
-                src.system_name AS src_system_nm, tgt.system_name AS tgt_system_nm, src.biz_name AS src_biz_nm, tgt.biz_name AS tgt_biz_nm
+                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id
             FROM
                 ais0080_work w80 
             LEFT JOIN
@@ -621,18 +616,16 @@ class ConvertQtrackSource(Source):
             df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
             df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
-            # src_system_biz_nm과 tgt_system_biz_nm 계산
-            df['src_system_biz_nm'] = None
-            df['tgt_system_biz_nm'] = None
-
             # ais0080 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
             columns_order = [
-                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
-                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
-                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping_bit', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id',
+                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org',
+                'src_table_type', 'src_mte_table_id',
+                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org',
+                'tgt_table_type', 'tgt_mte_table_id',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping_bit', 'mapping_kind', 'src_system_biz_id',
+                'tgt_system_biz_id',
                 'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
-                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',
-                'src_system_nm', 'tgt_system_nm', 'src_biz_nm', 'tgt_biz_nm', 'src_system_biz_nm', 'tgt_system_biz_nm'
+                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id'
             ]
 
             df_insert = df[columns_order]
@@ -642,7 +635,6 @@ class ConvertQtrackSource(Source):
 
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0080: {e}")
-
 
     def populate_ais0081(self):
         self.logger.info("Populating ais0081 from ais0113")
@@ -693,8 +685,7 @@ class ConvertQtrackSource(Source):
                 w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
                 w81.src_owner_tgt_srv_id, w81.tgt_owner_tgt_srv_id, w81.cond_mapping, w81.mapping_kind, w81.src_system_biz_id, w81.tgt_system_biz_id, w81.data_maker,
                 src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
-                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id,
-                src.system_name AS src_system_nm, tgt.system_name AS tgt_system_nm, src.biz_name AS src_biz_nm, tgt.biz_name AS tgt_biz_nm
+                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id
             FROM
                 ais0081_work w81
             LEFT JOIN
@@ -712,20 +703,18 @@ class ConvertQtrackSource(Source):
             df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
             df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
-            # src_system_biz_nm과 tgt_system_biz_nm 계산
-            df['src_system_biz_nm'] = None
-            df['tgt_system_biz_nm'] = None
-
             # ais0081 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
             columns_order = [
-                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org', 'src_table_type', 'src_mte_table_id',
+                'src_prj_id', 'src_owner_name', 'src_caps_table_name', 'src_table_name', 'src_table_name_org',
+                'src_table_type', 'src_mte_table_id',
                 'src_caps_col_name', 'src_col_name', 'src_col_value_yn', 'src_mte_col_id',
-                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org', 'tgt_table_type', 'tgt_mte_table_id',
+                'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org',
+                'tgt_table_type', 'tgt_mte_table_id',
                 'tgt_caps_col_name', 'tgt_col_name', 'tgt_col_value_yn', 'tgt_mte_col_id',
-                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping', 'mapping_kind', 'src_system_biz_id', 'tgt_system_biz_id', 'data_maker',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping', 'mapping_kind', 'src_system_biz_id',
+                'tgt_system_biz_id', 'data_maker',
                 'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
-                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id',
-                'src_system_nm', 'tgt_system_nm', 'src_biz_nm', 'tgt_biz_nm', 'src_system_biz_nm', 'tgt_system_biz_nm'
+                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id'
             ]
 
             df_insert = df[columns_order]
@@ -735,7 +724,6 @@ class ConvertQtrackSource(Source):
 
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0081: {e}")
-
 
     async def transfer_to_postgresql(self):
         self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
@@ -826,35 +814,35 @@ class ConvertQtrackSource(Source):
 
                 # Prepare row for PostgreSQL
                 processed_row = (
-                    prj_id,                     # prj_id
-                    float(file_id),             # file_id
-                    float(sql_id),              # sql_id
-                    float(table_id),            # table_id
-                    float(obj_id),              # obj_id
-                    float(func_id),             # func_id
-                    table_name,                 # table_name
-                    caps_table_name,            # caps_table_name
-                    owner_name,                 # owner_name
-                    pg_query_type,              # query_type
-                    None,                       # query_line_no
-                    sql_obj_type,               # sql_obj_type
-                    None,                       # inlineview_yn
-                    None,                       # dblink_name
-                    None,                       # table_alias_name
-                    None,                       # inlineview_src
-                    sql_state,                  # sql_state
-                    None,                       # column_no
-                    None,                       # table_depth
-                    None,                       # table_order_no
-                    None,                       # rel_table_id
-                    None,                       # rel_flow_id
-                    None,                       # dbc_mapping_yn
-                    None,                       # teradata_sql_id
-                    unique_owner_name,          # unique_owner_name
-                    unique_owner_tgt_srv_id,    # unique_owner_tgt_srv_id
-                    None,                       # sql_name
-                    None,                       # system_biz_id
-                    None                        # fl_tbl_uid
+                    prj_id,  # prj_id
+                    float(file_id),  # file_id
+                    float(sql_id),  # sql_id
+                    float(table_id),  # table_id
+                    float(obj_id),  # obj_id
+                    float(func_id),  # func_id
+                    table_name,  # table_name
+                    caps_table_name,  # caps_table_name
+                    owner_name,  # owner_name
+                    pg_query_type,  # query_type
+                    None,  # query_line_no
+                    sql_obj_type,  # sql_obj_type
+                    None,  # inlineview_yn
+                    None,  # dblink_name
+                    None,  # table_alias_name
+                    None,  # inlineview_src
+                    sql_state,  # sql_state
+                    None,  # column_no
+                    None,  # table_depth
+                    None,  # table_order_no
+                    None,  # rel_table_id
+                    None,  # rel_flow_id
+                    None,  # dbc_mapping_yn
+                    None,  # teradata_sql_id
+                    unique_owner_name,  # unique_owner_name
+                    unique_owner_tgt_srv_id,  # unique_owner_tgt_srv_id
+                    None,  # sql_name
+                    None,  # system_biz_id
+                    None  # fl_tbl_uid
                 )
                 processed_batch.append(processed_row)
 
