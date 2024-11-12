@@ -326,7 +326,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
 
         if not result:
             message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
-            logging.warning(message)
+            logging.debug(message)
             raise HTTPException(status_code=404, detail=message)
 
         return {
@@ -472,7 +472,7 @@ async def graphql_endpoint(request: Request):
 
             return JSONResponse(content=response)
         else:
-            logging.warning("Unsupported GraphQL query received")
+            logging.debug("Unsupported GraphQL query received")
             return JSONResponse(content={"errors": ["Unsupported query"]}, status_code=400)
 
     except Exception as e:
@@ -535,7 +535,7 @@ def main(log_file, db_file, log_level, port):
     # Logging setup
     logging.basicConfig(
         level=getattr(logging, log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5),
             logging.StreamHandler(sys.stdout)
