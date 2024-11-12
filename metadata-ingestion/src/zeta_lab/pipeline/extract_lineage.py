@@ -26,7 +26,7 @@ def get_meta_instance(db_path: str, prj_id: str) -> tuple:
 
         # 쿼리 실행
         query = """
-            SELECT platform, platform_instance, default_db, default_schema 
+            SELECT lower(platform), lower(platform_instance), lower(default_db), lower(default_schema) 
             FROM main.meta_instance 
             WHERE job_id = ?
             LIMIT 1
@@ -85,7 +85,11 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
             raise ValueError("metadata.db file does not exist.")
 
         platform,platform_instance,default_db,default_schema = get_meta_instance(metadatadb_path,prj_id)
-        logger.info(platform,platform_instance,default_db,default_schema)
+        logger.info(f"platform:{platform}")
+        logger.info(f"platform_instance:{platform_instance}")
+        logger.info(f"default_db:{default_db}")
+        logger.info(f"default_schema:{default_schema}")
+
 
         # sqlsrc.json path
         sqlsrc_json_path = os.path.join(prj_repo_path, 'sqlsrc.json')
