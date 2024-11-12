@@ -423,6 +423,18 @@ def get_schema_name(table_urn):
     table_content = dataset_urn.get_dataset_name()
     return NameUtil.get_schema(table_content).upper()
 
+def get_sql_obj_type(table_name):
+    # 입력 문자열을 소문자로 변환
+    table_name = table_name.lower()
+
+    # 조건 검사
+    if table_name.startswith('s3://') and (table_name.endswith('fil') or
+                                           table_name.endswith('_temp') or
+                                           table_name.endswith('_tmp') or
+                                           table_name.endswith('_stage')):
+        return '$tb'
+    return 'TBL'
+
 def extract_db_info(service_xml_path, security_properties_path):
     """
     Extract PostgreSQL connection information from XML file and security properties.
