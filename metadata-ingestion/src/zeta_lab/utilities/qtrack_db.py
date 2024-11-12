@@ -1,10 +1,6 @@
 import logging
 from typing import Any
 
-import duckdb
-import psycopg2
-from zeta_lab.utilities.tool import get_db_name,get_schema_name
-
 logger = logging.getLogger(__name__)
 
 def create_duckdb_tables(conn: Any):
@@ -39,9 +35,7 @@ def create_ais0102(conn: Any):
                 system_tgt_srv_id VARCHAR,
                 owner_srv_id VARCHAR,
                 system_id VARCHAR,
-                system_name VARCHAR,
                 biz_id VARCHAR,
-                biz_name VARCHAR,
                 PRIMARY KEY (prj_id, file_id, sql_id, table_id)
         )
     """)
@@ -63,12 +57,10 @@ def create_ais0102_work(conn: Any):
             system_tgt_srv_id VARCHAR,
             owner_srv_id VARCHAR,
             system_id VARCHAR,
-            system_name VARCHAR,
             biz_id VARCHAR,
-            biz_name VARCHAR,
             PRIMARY KEY (
                 prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, system_name, biz_id, biz_name
+                system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, biz_id
             )
         )
     """)
@@ -229,13 +221,7 @@ def create_ais0080(conn: Any):
             src_system_id VARCHAR,
             tgt_system_id VARCHAR,
             src_biz_id VARCHAR,
-            tgt_biz_id VARCHAR,
-            src_system_nm VARCHAR,
-            tgt_system_nm VARCHAR,
-            src_biz_nm VARCHAR,
-            tgt_biz_nm VARCHAR,
-            src_system_biz_nm VARCHAR,
-            tgt_system_biz_nm VARCHAR
+            tgt_biz_id VARCHAR
         )
     """)
     logger.info("Table 'ais0080' created.")
@@ -314,13 +300,7 @@ def create_ais0081(conn: Any):
             src_system_id VARCHAR,
             tgt_system_id VARCHAR,
             src_biz_id VARCHAR,
-            tgt_biz_id VARCHAR,
-            src_system_nm VARCHAR,
-            tgt_system_nm VARCHAR,
-            src_biz_nm VARCHAR,
-            tgt_biz_nm VARCHAR,
-            src_system_biz_nm VARCHAR,
-            tgt_system_biz_nm VARCHAR
+            tgt_biz_id VARCHAR
         )
     """)
     logger.info("Table 'ais0081' created.")
