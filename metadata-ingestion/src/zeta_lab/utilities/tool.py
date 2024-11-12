@@ -5,7 +5,9 @@ import chardet
 from functools import wraps
 
 import psutil
+from mypyc.primitives.registry import custom_primitive_op
 
+from datahub.cli.specific.dataset_cli import dataset
 from datahub.metadata._urns.urn_defs import DatasetUrn
 from datahub.metadata.schema_classes import (
     SchemaFieldDataTypeClass,
@@ -22,6 +24,8 @@ from datahub.metadata.schema_classes import (
     RecordTypeClass
 )
 import xml.etree.ElementTree as ET
+
+from unit.api.source_helpers.test_incremental_lineage_helper import system_metadata
 from zeta_lab.utilities.decrypt_file import DecryptFile
 
 logger = logging.getLogger(__name__)
@@ -298,50 +302,116 @@ def get_system_biz_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "[owner_undefined]"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("system_biz_id", "") or "[owner_undefined]"
+
+    aspect = props.get("aspect")
+    if aspect is None:
+        return "[owner_undefined]"
+
+    dataset_properties = aspect.get("datasetProperties")
+    if dataset_properties is None:
+        return "[owner_undefined]"
+
+    custom_properties = dataset_properties.get("customProperties")
+    if custom_properties is None:
+        return "[owner_undefined]"
+
+    system_biz_id = custom_properties.get("system_biz_id")
+    if system_biz_id is None:
+        return "[owner_undefined]"
+
+    return system_biz_id
 
 def get_system_tgt_srv_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "NA"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("tgt_srv_id", "") or "NA"
+
+    aspect = props.get("aspect")
+    if aspect is None:
+        return "NA"
+
+    dataset_properties = aspect.get("datasetProperties")
+    if dataset_properties is None:
+        return "NA"
+
+    custom_properties = dataset_properties.get("customProperties")
+    if custom_properties is None:
+        return "NA"
+
+    tgt_srv_id = custom_properties.get("tgt_srv_id")
+    if tgt_srv_id is None:
+        return "NA"
+
+    return tgt_srv_id
 
 def get_owner_srv_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "[owner_undefined]"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("owner_srv_id", "") or "[owner_undefined]"
+
+    aspect = props.get("aspect")
+    if aspect is None:
+        return "[owner_undefined]"
+
+    dataset_properties = aspect.get("datasetProperties")
+    if dataset_properties is None:
+        return "[owner_undefined]"
+
+    custom_properties = dataset_properties.get("customProperties")
+    if custom_properties is None:
+        return "[owner_undefined]"
+
+    owner_srv_id = custom_properties.get("owner_srv_id")
+    if owner_srv_id is None:
+        return "[owner_undefined]"
+
+    return owner_srv_id
 
 def get_system_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "[owner"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("system_id", "") or "[owner"
 
-def get_system_name(props):
-    # If props is None, return "[owner_undefined]"
-    if props is None:
+    aspect = props.get("aspect")
+    if aspect is None:
         return "[owner"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("system_name", "") or "[owner"
+
+    dataset_properties = aspect.get("datasetProperties")
+    if dataset_properties is None:
+        return "[owner"
+
+    custom_properties = dataset_properties.get("customProperties")
+    if custom_properties is None:
+        return "[owner"
+
+    system_id = custom_properties.get("system_id")
+    if system_id is None:
+        return "[owner"
+
+    return system_id
 
 def get_biz_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
         return "undefined"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("biz_id", "") or "undefined"
 
-def get_biz_name(props):
-    # If props is None, return "[owner_undefined]"
-    if props is None:
+    aspect = props.get("aspect")
+    if aspect is None:
         return "undefined"
-    # If "customProperties" is missing or empty, return "[owner_undefined]"
-    return (props or {}).get("customProperties", {}).get("biz_name", "") or "undefined"
+
+    dataset_properties = aspect.get("datasetProperties")
+    if dataset_properties is None:
+        return "undefined"
+
+    custom_properties = dataset_properties.get("customProperties")
+    if custom_properties is None:
+        return "undefined"
+
+    biz_id = custom_properties.get("biz_id")
+    if biz_id is None:
+        return "undefined"
+
+    return biz_id
 
 def get_db_name(table_urn):
     dataset_urn = DatasetUrn.from_string(table_urn)
