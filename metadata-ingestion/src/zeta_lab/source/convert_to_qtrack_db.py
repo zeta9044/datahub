@@ -198,15 +198,13 @@ class ConvertQtrackSource(Source):
         upstreams = metadata.get('upstreams', [])
         fine_grained_lineages = metadata.get('fineGrainedLineages', [])
         downstream_properties = self.get_dataset_properties(downstream_urn)
+        downstream_table_id = self.get_table_id(downstream_urn)
 
-        # Process each upstream table
+        # Process each upstream table - table level lineage only
         for upstream in upstreams:
             upstream_urn = upstream['dataset']
             query_custom_keys = upstream.get('query_custom_keys', {})
             upstream_properties = self.get_dataset_properties(upstream_urn)
-
-            # Get table IDs
-            downstream_table_id = self.get_table_id(downstream_urn)
             upstream_table_id = self.get_table_id(upstream_urn)
 
             # Create ais0102 entry (table info)
@@ -218,16 +216,35 @@ class ConvertQtrackSource(Source):
                                              upstream_table_id, downstream_table_id,
                                              upstream_properties, downstream_properties)
 
-            # Process column level lineage
-            if fine_grained_lineages:
-                self.process_column_level_lineage(fine_grained_lineages, upstream_urn, downstream_urn,
-                                                  query_custom_keys, upstream_table_id, downstream_table_id,
-                                                  upstream_properties, downstream_properties)
-            else:
-                # Create virtual '*' column mapping when no fine-grained lineage exists
-                self.create_virtual_column_lineage(upstream_urn, downstream_urn, query_custom_keys,
-                                                   upstream_table_id, downstream_table_id,
-                                                   downstream_properties, upstream_properties)
+        # Process column level lineage separately
+        if fine_grained_lineages:
+            # Group all upstream URNs and their properties for column processing
+            upstream_info = {
+                upstream['dataset']: {
+                    'table_id': self.get_table_id(upstream['dataset']),
+                    'properties': self.get_dataset_properties(upstream['dataset']),
+                    'query_custom_keys': upstream.get('query_custom_keys', {})
+                }
+                for upstream in upstreams
+            }
+
+            self.process_column_level_lineage(fine_grained_lineages, upstream_info,
+                                              downstream_urn, downstream_table_id,
+                                              downstream_properties)
+        else:
+            # If no fine-grained lineage exists, create virtual mappings for each upstream
+            for upstream in upstreams:
+                upstream_urn = upstream['dataset']
+                query_custom_keys = upstream.get('query_custom_keys', {})
+                upstream_properties = self.get_dataset_properties(upstream_urn)
+                upstream_table_id = self.get_table_id(upstream_urn)
+
+                self.create_virtual_column_lineage(
+                    upstream_urn, downstream_urn,
+                    query_custom_keys, upstream_table_id,
+                    downstream_table_id,
+                    upstream_properties, downstream_properties
+                )
 
     def process_table_level_lineage(self, upstream_urn: str, downstream_urn: str,
                                     query_custom_keys: Dict, upstream_table_id: int,
@@ -301,12 +318,19 @@ class ConvertQtrackSource(Source):
             self.logger.error(f"Error creating ais0112 entry: {e}")
 
     def process_column_level_lineage(self, fine_grained_lineages: List[Dict],
-                                     upstream_urn: str, downstream_urn: str,
-                                     query_custom_keys: Dict, upstream_table_id: int,
+                                     upstream_info: Dict,
+                                     downstream_urn: str,
                                      downstream_table_id: int,
-                                     upstream_properties: Dict, downstream_properties: Dict) -> None:
+                                     downstream_properties: Dict) -> None:
         """
         Process fine-grained lineage information for column-level mapping
+
+        Args:
+            fine_grained_lineages: List of fine-grained lineage information
+            upstream_info: Dictionary containing information about upstream tables
+            downstream_urn: URN of the downstream table
+            downstream_table_id: ID of the downstream table
+            downstream_properties: Properties of the downstream table
         """
         for lineage in fine_grained_lineages:
             upstreams = lineage.get('upstreams', [])
@@ -314,13 +338,25 @@ class ConvertQtrackSource(Source):
             transform_operation = lineage.get('transformOperation', '')
 
             for upstream_col in upstreams:
+                # Extract the table URN from the column URN
+                # Format: "urn:li:schemaField:(urn:li:dataset:(platform,name,env),field_path)"
+                upstream_table_urn = upstream_col[upstream_col.find("(") + 1:upstream_col.rfind(",")]
+                if upstream_table_urn not in upstream_info:
+                    self.logger.warning(f"Upstream table {upstream_table_urn} not found in upstream_info")
+                    continue
+
+                upstream_data = upstream_info[upstream_table_urn]
+
                 for downstream_col in downstreams:
                     self.create_column_lineage_entry(
-                        upstream_urn, downstream_urn,
+                        upstream_table_urn, downstream_urn,
                         upstream_col, downstream_col,
-                        transform_operation, query_custom_keys,
-                        upstream_table_id, downstream_table_id,
-                        upstream_properties, downstream_properties
+                        transform_operation,
+                        upstream_data['query_custom_keys'],
+                        upstream_data['table_id'],
+                        downstream_table_id,
+                        upstream_data['properties'],
+                        downstream_properties
                     )
 
     def create_virtual_column_lineage(self, upstream_urn: str, downstream_urn: str,
@@ -345,7 +381,7 @@ class ConvertQtrackSource(Source):
                                     upstream_col_urn: str, downstream_col_urn: str,
                                     transform_operation: str, query_custom_keys: Dict,
                                     upstream_table_id: int, downstream_table_id: int,
-                                    downstream_properties: Dict, upstream_properties: Dict) -> None:
+                                    upstream_properties: Dict, downstream_properties: Dict) -> None:
         """
         Create an entry in the ais0113 table for column-level lineage
         """
