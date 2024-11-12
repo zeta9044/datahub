@@ -3,17 +3,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def create_duckdb_tables(conn: Any):
     """Create necessary tables in DuckDB if they don't exist."""
     create_ais0102(conn)
-    create_ais0102_work(conn)
-    create_ais0103(conn)
     create_ais0112(conn)
     create_ais0113(conn)
     create_ais0080(conn)
-    create_ais0080_work(conn)
     create_ais0081(conn)
-    create_ais0081_work(conn)
 
 def create_ais0102(conn: Any):
     logger.info("Creating table 'ais0102'.")
@@ -41,51 +38,6 @@ def create_ais0102(conn: Any):
     """)
     logger.info("Table 'ais0102' created.")
 
-def create_ais0102_work(conn: Any):
-    logger.info("Creating table 'ais0102_work'.")
-    conn.execute("""
-        DROP TABLE IF EXISTS ais0102_work;
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ais0102_work (
-            prj_id VARCHAR,
-            file_id INTEGER,
-            table_id INTEGER,
-            sql_obj_type VARCHAR,
-            table_urn VARCHAR,
-            system_biz_id VARCHAR,
-            system_tgt_srv_id VARCHAR,
-            owner_srv_id VARCHAR,
-            system_id VARCHAR,
-            biz_id VARCHAR,
-            PRIMARY KEY (
-                prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                system_biz_id, system_tgt_srv_id, owner_srv_id, system_id, biz_id
-            )
-        )
-    """)
-    logger.info("Table 'ais0102_work' created.")
-
-def create_ais0103(conn: Any):
-    logger.info("Creating table 'ais0103'.")
-    conn.execute("""
-        DROP TABLE IF EXISTS ais0103;
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ais0103 (
-                prj_id VARCHAR,
-                file_id INTEGER,
-                sql_id INTEGER,
-                table_id INTEGER,
-                col_id INTEGER,
-                obj_id INTEGER,
-                func_id INTEGER,
-                column_urn VARCHAR,
-                transform_operation  VARCHAR,
-                PRIMARY KEY (prj_id, file_id, sql_id, table_id, col_id)
-        )
-    """)
-    logger.info("Table 'ais0103' created.")
 
 def create_ais0112(conn: Any):
     logger.info("Creating table 'ais0112'.")
@@ -127,6 +79,7 @@ def create_ais0112(conn: Any):
         )
     """)
     logger.info("Table 'ais0112' created.")
+
 
 def create_ais0113(conn: Any):
     logger.info("Creating table 'ais0112'.")
@@ -187,6 +140,7 @@ def create_ais0113(conn: Any):
     """)
     logger.info("Table 'ais0113' created.")
 
+
 def create_ais0080(conn: Any):
     logger.info("Creating table 'ais0080'.")
     conn.execute("""
@@ -226,36 +180,6 @@ def create_ais0080(conn: Any):
     """)
     logger.info("Table 'ais0080' created.")
 
-def create_ais0080_work(conn: Any):
-    logger.info("Creating table 'ais0080_work'.")
-    conn.execute("""
-        DROP TABLE IF EXISTS ais0080_work;
-            """)
-    conn.execute("""
-            CREATE TABLE IF NOT EXISTS ais0080_work ( 
-                src_prj_id VARCHAR,
-                src_owner_name VARCHAR,
-                src_caps_table_name VARCHAR,
-                src_table_name VARCHAR,
-                src_table_type VARCHAR,
-                src_file_id INTEGER,
-                src_mte_table_id VARCHAR,
-                src_owner_tgt_srv_id VARCHAR,
-                src_system_biz_id VARCHAR,
-                tgt_prj_id VARCHAR,
-                tgt_owner_name VARCHAR,
-                tgt_caps_table_name VARCHAR,
-                tgt_table_name VARCHAR,
-                tgt_table_type VARCHAR,
-                tgt_file_id INTEGER,
-                tgt_mte_table_id VARCHAR,
-                tgt_owner_tgt_srv_id VARCHAR,
-                tgt_system_biz_id VARCHAR,
-                cond_mapping_bit INTEGER,
-                mapping_kind VARCHAR
-            )
-        """)
-    logger.info("Table 'ais0080_work' created.")
 
 def create_ais0081(conn: Any):
     logger.info("Creating table 'ais0081'.")
@@ -305,52 +229,12 @@ def create_ais0081(conn: Any):
     """)
     logger.info("Table 'ais0081' created.")
 
-def create_ais0081_work(conn: Any):
-    logger.info("Creating table 'ais0081_work'.")
-    conn.execute("""
-        DROP TABLE IF EXISTS ais0081_work;
-            """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ais0081_work (
-            src_prj_id VARCHAR,
-            src_owner_name VARCHAR,
-            src_caps_table_name VARCHAR,
-            src_table_name VARCHAR,
-            src_table_type VARCHAR,
-            src_file_id INTEGER,
-            src_mte_table_id VARCHAR,
-            src_caps_col_name VARCHAR,
-            src_col_name VARCHAR,
-            src_col_value_yn VARCHAR,
-            src_mte_col_id INTEGER,
-            src_owner_tgt_srv_id VARCHAR,
-            src_system_biz_id VARCHAR,           
-            tgt_prj_id VARCHAR,
-            tgt_owner_name VARCHAR,
-            tgt_caps_table_name VARCHAR,
-            tgt_table_name VARCHAR,
-            tgt_table_type VARCHAR,
-            tgt_file_id INTEGER,
-            tgt_mte_table_id VARCHAR,
-            tgt_caps_col_name VARCHAR,
-            tgt_col_name VARCHAR,
-            tgt_col_value_yn VARCHAR,
-            tgt_mte_col_id INTEGER,
-            tgt_owner_tgt_srv_id VARCHAR,
-            tgt_system_biz_id VARCHAR,
-            cond_mapping INTEGER,
-            mapping_kind VARCHAR,
-            data_maker VARCHAR
-        )
-    """)
-    logger.info("Table 'ais0081_work' created.")
-
 
 def check_postgres_tables_exist(pg_pool: Any, pg_config: dict):
     """Check if required tables exist in PostgreSQL."""
     with pg_pool.getconn() as conn:
         with conn.cursor() as cur:
-            for table in ['ais0112', 'ais0113','ais0080','ais0081']:
+            for table in ['ais0112', 'ais0113', 'ais0080', 'ais0081']:
                 cur.execute(f"""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
@@ -364,4 +248,3 @@ def check_postgres_tables_exist(pg_pool: Any, pg_config: dict):
                 else:
                     logger.info(f"Table '{table}' exists in PostgreSQL")
         pg_pool.putconn(conn)
-
