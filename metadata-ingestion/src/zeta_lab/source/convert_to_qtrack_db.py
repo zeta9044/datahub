@@ -19,7 +19,7 @@ from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
-    get_biz_id, get_db_name, get_schema_name
+    get_biz_id, get_sql_obj_type
 
 
 class ConvertQtrackSource(Source):
@@ -107,6 +107,22 @@ class ConvertQtrackSource(Source):
             self.next_column_id += 1
         return self.column_id_map[key]
 
+    def get_next_column_order(self, table_urn: str) -> int:
+        order = self.column_order.get(table_urn, 0)
+        self.column_order[table_urn] = order + 1
+        return order
+
+    def extract_column_name(self, column_urn: str) -> str:
+        """
+        Extract column name from schema field URN
+        """
+        try:
+            schema_field = SchemaFieldUrn.from_string(column_urn)
+            return schema_field.field_path
+        except Exception as e:
+            self.logger.error(f"Error extracting column name from URN {column_urn}: {e}")
+            return '*'  # Return default value in case of error
+
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
         query = """
         SELECT urn, metadata FROM metadata_aspect_v2
@@ -115,9 +131,9 @@ class ConvertQtrackSource(Source):
         results = self.duckdb_conn.execute(query).fetchall()
 
         for row in results:
-            downstream = row[0]
+            downstream_urn = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
-            self.process_lineage(downstream, metadata)
+            self.process_lineage(downstream_urn, metadata)
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
@@ -131,232 +147,316 @@ class ConvertQtrackSource(Source):
 
         return []
 
-    def process_lineage(self, downstream: str, metadata: Dict) -> None:
+    def create_table_info(self, stream_urn: str, table_id: int,
+                          query_custom_keys: Dict, stream_properties: Dict) -> None:
+        prj_id = query_custom_keys.get('prj_id', '')
+        file_id = int(query_custom_keys.get('file_id', 0))
+        sql_id = int(query_custom_keys.get('sql_id', 0))
+        obj_id = int(query_custom_keys.get('obj_id', 0))
+        func_id = int(query_custom_keys.get('func_id', 0))
+        query_type = query_custom_keys.get('query_type', '')
+        query_type_props_str = query_custom_keys.get('query_type_props', '{}')
+
+        # query_type_props가 문자열이므로 JSON 형식으로 파싱
+        if isinstance(query_type_props_str, str):
+            try:
+                query_type_props = json.loads(query_type_props_str)
+            except json.JSONDecodeError:
+                query_type_props = {}  # 파싱 오류 시 기본값으로 빈 딕셔너리 사용
+        else:
+            query_type_props = query_type_props_str  # 이미 딕셔너리인 경우 그대로 사용
+
+        # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
+        TEMPORARY_TABLE = '$TB'
+        REGULAR_TABLE = 'TBL'
+        FILE_TABLE = 'FIL'
+        stream_dataset = DatasetUrn.from_string(stream_urn)
+        stream_content = stream_dataset.get_dataset_name()
+        stream_table = NameUtil.get_table_name(stream_content)
+        sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
+        sql_obj_type = get_sql_obj_type(stream_table)
+        sql_obj_type = FILE_TABLE if 's3://' in stream_table else sql_obj_type
+        system_biz_id = get_system_biz_id(stream_properties)
+        system_tgt_srv_id = get_system_tgt_srv_id(stream_properties)
+        owner_srv_id = get_owner_srv_id(stream_properties)
+        system_id = get_system_id(stream_properties)
+        biz_id = get_biz_id(stream_properties)
+
+        try:
+            self.duckdb_conn.execute("""
+                        INSERT OR REPLACE INTO ais0102 
+                        (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,biz_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
+                    """, (
+                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, stream_urn, system_biz_id,
+                system_tgt_srv_id, owner_srv_id, system_id, biz_id))
+            self.logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {stream_urn}")
+        except duckdb.Error as e:
+            self.logger.error(f"Error inserting into ais0102: {e}")
+
+    def process_lineage(self, downstream_urn: str, metadata: Dict) -> None:
         upstreams = metadata.get('upstreams', [])
         fine_grained_lineages = metadata.get('fineGrainedLineages', [])
+        downstream_properties = self.get_dataset_properties(downstream_urn)
 
-        downstream_table_id = self.get_table_id(downstream)
-        upstream_table_ids = {upstream['dataset']: self.get_table_id(upstream['dataset']) for upstream in upstreams}
-
-        downstream_properties = self.get_dataset_properties(downstream)
-
+        # Process each upstream table
         for upstream in upstreams:
             upstream_urn = upstream['dataset']
-            upstream_properties = self.get_dataset_properties(upstream_urn)
             query_custom_keys = upstream.get('query_custom_keys', {})
-
-            # 기존 ais0102 처리 및 ais0112 추가
-            self.process_table_lineage(downstream, upstream_urn, query_custom_keys,
-                                       downstream_table_id, upstream_table_ids[upstream_urn],
-                                       downstream_properties, upstream_properties)
-            self.populate_ais0112(upstream_urn, downstream, query_custom_keys)
-
-        for upstream in upstreams:
-            upstream_urn = upstream['dataset']
             upstream_properties = self.get_dataset_properties(upstream_urn)
-            query_custom_keys = upstream.get('query_custom_keys', {})
 
-            # 기존 ais0103 처리 및 ais0113 추가
-            self.process_column_lineage(downstream, upstream_urn, fine_grained_lineages, query_custom_keys,
-                                        downstream_table_id, upstream_table_ids[upstream_urn],
-                                        downstream_properties, upstream_properties)
-            self.populate_ais0113(upstream_urn, downstream, fine_grained_lineages, query_custom_keys)
+            # Get table IDs
+            downstream_table_id = self.get_table_id(downstream_urn)
+            upstream_table_id = self.get_table_id(upstream_urn)
 
-    def populate_ais0112(self, upstream_urn: str, downstream_urn: str, query_custom_keys: Dict) -> None:
-        upstream_data = self.get_ais0102_data(upstream_urn, query_custom_keys)
-        downstream_data = self.get_ais0102_data(downstream_urn, query_custom_keys)
+            # Create ais0102 entry (table info)
+            self.create_table_info(upstream_urn, upstream_table_id, query_custom_keys, upstream_properties)
+            self.create_table_info(downstream_urn, downstream_table_id, query_custom_keys, downstream_properties)
 
-        if not upstream_data or not downstream_data:
-            self.logger.warning(f"Missing data for ais0112: upstream={upstream_urn}, downstream={downstream_urn}")
-            return
+            # Create ais0112 entry (table level lineage)
+            self.process_table_level_lineage(upstream_urn, downstream_urn, query_custom_keys,
+                                             upstream_table_id, downstream_table_id,
+                                             upstream_properties, downstream_properties)
 
+            # Process column level lineage
+            if fine_grained_lineages:
+                self.process_column_level_lineage(fine_grained_lineages, upstream_urn, downstream_urn,
+                                                  query_custom_keys, upstream_table_id, downstream_table_id,
+                                                  upstream_properties, downstream_properties)
+            else:
+                # Create virtual '*' column mapping when no fine-grained lineage exists
+                self.create_virtual_column_lineage(upstream_urn, downstream_urn, query_custom_keys,
+                                                   upstream_table_id, downstream_table_id,
+                                                   downstream_properties, upstream_properties)
+
+    def process_table_level_lineage(self, upstream_urn: str, downstream_urn: str,
+                                    query_custom_keys: Dict, upstream_table_id: int,
+                                    downstream_table_id: int,
+                                    upstream_properties: Dict, downstream_properties: Dict) -> None:
         try:
+            # Process upstream URN
+            upstream_dataset = DatasetUrn.from_string(upstream_urn)
+            upstream_content = upstream_dataset.get_dataset_name()
+            upstream_owner = NameUtil.get_schema(upstream_content)
+            upstream_table = NameUtil.get_table_name(upstream_content)
+            upstream_sql_obj_type = get_sql_obj_type(upstream_table)
+            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content)
+            upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
+            upstream_system_biz_id = get_system_biz_id(upstream_properties)
+
+            # Process downstream URN
+            downstream_dataset = DatasetUrn.from_string(downstream_urn)
+            downstream_content = downstream_dataset.get_dataset_name()
+            downstream_owner = NameUtil.get_schema(downstream_content)
+            downstream_table = NameUtil.get_table_name(downstream_content)
+            downstream_sql_obj_type = get_sql_obj_type(downstream_table)
+            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content)
+            downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
+            downstream_system_biz_id = get_system_biz_id(downstream_properties)
+
+            # Insert into ais0112
             self.duckdb_conn.execute("""
-                INSERT OR REPLACE INTO ais0112 (
-                    prj_id, file_id, sql_id, table_id, obj_id, func_id, owner_name, table_name, caps_table_name, sql_obj_type,
+                INSERT INTO ais0112 (
+                    prj_id, file_id, sql_id, table_id, obj_id, func_id,
+                    owner_name, table_name, caps_table_name, sql_obj_type,
                     unique_owner_name, unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_obj_id, call_func_id, call_owner_name,
-                    call_table_name, call_caps_table_name, call_sql_obj_type, call_unique_owner_name,
-                    call_unique_owner_tgt_srv_id, call_system_biz_id, cond_mapping_bit, data_maker, mapping_kind
+                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_obj_id, call_func_id,
+                    call_owner_name, call_table_name, call_caps_table_name, call_sql_obj_type,
+                    call_unique_owner_name, call_unique_owner_tgt_srv_id, call_system_biz_id,
+                    cond_mapping_bit, data_maker, mapping_kind
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (*upstream_data, *downstream_data, 2, '', ''))  # cond_mapping_bit, data_maker, mapping_kind는 기본값으로 설정
-            self.logger.debug(f"Inserted/Updated record in ais0112 for {upstream_urn} -> {downstream_urn}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error inserting into ais0112: {e}")
-
-    def populate_ais0113(self, upstream_urn: str, downstream_urn: str, fine_grained_lineages: List[Dict],
-                         query_custom_keys: Dict) -> None:
-        # 컬럼 순서 초기화
-        self.column_order = {upstream_urn: 0, downstream_urn: 0}
-
-        if not fine_grained_lineages:
-            # 가상 '*' 컬럼 처리
-            upstream_data = self.get_ais0103_data(upstream_urn, f"urn:li:schemaField:({upstream_urn},*)",
-                                                  query_custom_keys)
-            downstream_data = self.get_ais0103_data(downstream_urn, f"urn:li:schemaField:({downstream_urn},*)",
-                                                    query_custom_keys)
-
-            if upstream_data and downstream_data:
-                self.insert_ais0113_record(upstream_data, downstream_data, '', upstream_urn, downstream_urn)
-        else:
-            for lineage in fine_grained_lineages:
-                upstreams = lineage.get('upstreams', [])
-                downstreams = lineage.get('downstreams', [])
-                transform_operation = lineage.get('transformOperation', '')
-
-                for upstream_col in upstreams:
-                    for downstream_col in downstreams:
-                        upstream_data = self.get_ais0103_data(upstream_urn, upstream_col, query_custom_keys)
-                        downstream_data = self.get_ais0103_data(downstream_urn, downstream_col, query_custom_keys)
-
-                        if upstream_data and downstream_data:
-                            self.insert_ais0113_record(upstream_data, downstream_data, transform_operation,
-                                                       upstream_urn, downstream_urn)
-
-    def insert_ais0113_record(self, upstream_data: Tuple, downstream_data: Tuple, transform_operation: str,
-                              upstream_urn: str, downstream_urn: str):
-        try:
-            # 컬럼 순서 가져오기
-            col_order_no = self.get_next_column_order(upstream_urn)
-            call_col_order_no = self.get_next_column_order(downstream_urn)
-
-            self.duckdb_conn.execute("""
-                INSERT OR REPLACE INTO ais0113 (
-                    prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id, owner_name, table_name, caps_table_name, 
-                    sql_obj_type, col_name, caps_col_name, col_value_yn, col_expr, col_name_org, caps_col_name_org, 
-                    unique_owner_name, unique_owner_tgt_srv_id, col_order_no, adj_col_order_no, system_biz_id,
-                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_col_id, call_obj_id, call_func_id, call_owner_name, call_table_name, call_caps_table_name,
-                    call_sql_obj_type, call_col_name, call_caps_col_name, call_col_value_yn, call_col_expr, call_col_name_org, call_caps_col_name_org, 
-                    call_unique_owner_name, call_unique_owner_tgt_srv_id, call_col_order_no, call_adj_col_order_no, call_system_biz_id,
-                    cond_mapping, data_maker, mapping_kind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                *upstream_data[:17],  # prj_id to caps_col_name_org
-                upstream_data[17], upstream_data[18],  # unique_owner_name, unique_owner_tgt_srv_id
-                col_order_no, col_order_no,  # col_order_no, adj_col_order_no
-                upstream_data[20],  # system_biz_id
-                *downstream_data[:17],  # call_prj_id to call_caps_col_name_org
-                downstream_data[17], downstream_data[18],  # call_unique_owner_name, call_unique_owner_tgt_srv_id
-                call_col_order_no, call_col_order_no,  # call_col_order_no, call_adj_col_order_no
-                downstream_data[20],  # call_system_biz_id
-                1, 'ingest_cli', ''  # cond_mapping, data_maker, mapping_kind
+                query_custom_keys.get('prj_id', ''),
+                int(query_custom_keys.get('file_id', 0)),
+                int(query_custom_keys.get('sql_id', 0)),
+                upstream_table_id,
+                int(query_custom_keys.get('obj_id', 0)),
+                int(query_custom_keys.get('func_id', 0)),
+                upstream_owner,
+                upstream_table,
+                upstream_table.upper(),
+                upstream_sql_obj_type,  # Default sql_obj_type
+                upstream_unique_owner,
+                upstream_unique_owner_tgt_srv_id,
+                upstream_system_biz_id,  # system_biz_id
+                query_custom_keys.get('prj_id', ''),
+                int(query_custom_keys.get('file_id', 0)),
+                int(query_custom_keys.get('sql_id', 0)),
+                downstream_table_id,
+                int(query_custom_keys.get('obj_id', 0)),
+                int(query_custom_keys.get('func_id', 0)),
+                downstream_owner,
+                downstream_table,
+                downstream_table.upper(),
+                downstream_sql_obj_type,  # Default sql_obj_type
+                downstream_unique_owner,
+                downstream_unique_owner_tgt_srv_id,
+                downstream_system_biz_id,  # call_system_biz_id
+                2,  # Default cond_mapping_bit
+                7474,  # Default data_maker
+                ''  # Default mapping_kind
             ))
-            self.logger.debug(f"Inserted/Updated record in ais0113 for {upstream_data[11]} -> {downstream_data[11]}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error inserting into ais0113: {e}")
+            self.logger.debug(f"Created ais0112 entry for {upstream_urn} -> {downstream_urn}")
+        except Exception as e:
+            self.logger.error(f"Error creating ais0112 entry: {e}")
 
-    def get_next_column_order(self, table_urn: str) -> int:
-        order = self.column_order.get(table_urn, 0)
-        self.column_order[table_urn] = order + 1
-        return order
-
-    def get_ais0102_data(self, table_urn: str, query_custom_keys: Dict) -> Tuple:
-        query = """
-            SELECT prj_id, file_id, sql_id, table_id, obj_id, func_id, 
-                   CASE 
-                    WHEN LOWER(table_urn) LIKE '%s3://%' THEN 'fil'
-                    WHEN LOWER(table_urn) LIKE '%_tmp%' THEN '$tb'
-                    WHEN LOWER(table_urn) LIKE '%_temp%' THEN '$tb'
-                    WHEN LOWER(table_urn) LIKE '%_stage%' THEN '$tb'
-                    ELSE COALESCE(sql_obj_type, '')
-                   END AS sql_obj_type,
-                   COALESCE(table_urn, '') as table_urn,
-                   COALESCE(system_biz_id, '') as system_biz_id,
-                   COALESCE(system_tgt_srv_id, '') as system_tgt_srv_id,
-                   COALESCE(owner_srv_id, '') as owner_srv_id,
-                   COALESCE(system_id, '') as system_id,
-                   COALESCE(biz_id, '') as biz_id
-            FROM ais0102 
-            WHERE table_urn = ? AND prj_id = ? AND file_id = ? AND sql_id = ? AND obj_id = ? AND func_id = ?
+    def process_column_level_lineage(self, fine_grained_lineages: List[Dict],
+                                     upstream_urn: str, downstream_urn: str,
+                                     query_custom_keys: Dict, upstream_table_id: int,
+                                     downstream_table_id: int,
+                                     upstream_properties: Dict, downstream_properties: Dict) -> None:
         """
-        params = [
-            table_urn,
-            query_custom_keys.get('prj_id', ''),
-            int(query_custom_keys.get('file_id', 0)),
-            int(query_custom_keys.get('sql_id', 0)),
-            int(query_custom_keys.get('obj_id', 0)),
-            int(query_custom_keys.get('func_id', 0))
-        ]
-        result = self.duckdb_conn.execute(query, params).fetchone()
-
-        if result:
-            dataset_urn = DatasetUrn.from_string(table_urn)
-            table_content = dataset_urn.get_dataset_name()
-
-            owner_name = NameUtil.get_schema(table_content)
-            table_name = NameUtil.get_table_name(table_content)
-            unique_owner_name = NameUtil.get_unique_owner_name(table_content)
-            unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(table_content)
-
-            return (
-                *result[:6],  # prj_id, file_id, sql_id, table_id, obj_id, func_id
-                owner_name.upper(),
-                table_name,
-                table_name.upper(),  # caps_table_name
-                result[6].lower(),  # sql_obj_type
-                unique_owner_name,
-                unique_owner_tgt_srv_id,
-                result[8]  # system_biz_id
-            )
-        return None
-
-    def get_ais0103_data(self, table_urn: str, column_urn: str, query_custom_keys: Dict) -> Tuple:
-        query = """
-            SELECT a.prj_id, a.file_id, a.sql_id, a.table_id, a.col_id, 
-                   a.obj_id, a.func_id, 
-                   CASE 
-                        WHEN LOWER(b.table_urn) LIKE '%s3://%' THEN 'fil'
-                        ELSE COALESCE(b.sql_obj_type, '')
-                   END AS sql_obj_type,
-                   COALESCE(a.column_urn, '') as column_urn,
-                   COALESCE(a.transform_operation, '') as transform_operation,
-                   COALESCE(b.system_biz_id, '') as system_biz_id
-            FROM ais0103 a
-            JOIN ais0102 b ON a.table_id = b.table_id
-            WHERE b.table_urn = ? AND a.column_urn = ? 
-                AND a.prj_id = ? AND a.file_id = ? AND a.sql_id = ? AND a.obj_id = ? AND a.func_id = ?
+        Process fine-grained lineage information for column-level mapping
         """
-        params = [
-            table_urn,
-            column_urn,
-            query_custom_keys.get('prj_id', ''),
-            int(query_custom_keys.get('file_id', 0)),
-            int(query_custom_keys.get('sql_id', 0)),
-            int(query_custom_keys.get('obj_id', 0)),
-            int(query_custom_keys.get('func_id', 0))
-        ]
-        result = self.duckdb_conn.execute(query, params).fetchone()
+        for lineage in fine_grained_lineages:
+            upstreams = lineage.get('upstreams', [])
+            downstreams = lineage.get('downstreams', [])
+            transform_operation = lineage.get('transformOperation', '')
 
-        if result:
-            dataset_urn = DatasetUrn.from_string(table_urn)
-            table_content = dataset_urn.get_dataset_name()
+            for upstream_col in upstreams:
+                for downstream_col in downstreams:
+                    self.create_column_lineage_entry(
+                        upstream_urn, downstream_urn,
+                        upstream_col, downstream_col,
+                        transform_operation, query_custom_keys,
+                        upstream_table_id, downstream_table_id,
+                        upstream_properties, downstream_properties
+                    )
 
-            owner_name = NameUtil.get_schema(table_content)
-            table_name = NameUtil.get_table_name(table_content)
-            unique_owner_name = NameUtil.get_unique_owner_name(table_content)
-            unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(table_content)
+    def create_virtual_column_lineage(self, upstream_urn: str, downstream_urn: str,
+                                      query_custom_keys: Dict, upstream_table_id: int,
+                                      downstream_table_id: int,
+                                      downstream_properties: Dict, upstream_properties: Dict) -> None:
+        """
+        Create virtual '*' column mapping when no fine-grained lineage exists
+        """
+        upstream_virtual_col = f"urn:li:schemaField:({upstream_urn},*)"
+        downstream_virtual_col = f"urn:li:schemaField:({downstream_urn},*)"
 
-            schema_field_urn = SchemaFieldUrn.from_string(column_urn)
-            col_name = schema_field_urn.field_path if schema_field_urn.field_path != '*' else '*'
+        self.create_column_lineage_entry(
+            upstream_urn, downstream_urn,
+            upstream_virtual_col, downstream_virtual_col,
+            '', query_custom_keys,
+            upstream_table_id, downstream_table_id,
+            upstream_properties, downstream_properties
+        )
 
-            return (
-                *result[:7],  # prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id
-                owner_name.upper(),
-                table_name,
-                table_name.upper(),  # caps_table_name
-                result[7].lower(),  # sql_obj_type
-                col_name,
-                col_name.upper() if col_name != '*' else '*',  # caps_col_name
-                'N',  # col_value_yn (default to 'Y')
-                '',  # col_expr (empty for now)
-                col_name,  # col_name_org
-                col_name.upper() if col_name != '*' else '*',  # caps_col_name_org
-                unique_owner_name,
-                unique_owner_tgt_srv_id,
-                result[9],  # transform_operation
-                result[10]  # system_biz_id
-            )
-        return None
+    def create_column_lineage_entry(self, upstream_urn: str, downstream_urn: str,
+                                    upstream_col_urn: str, downstream_col_urn: str,
+                                    transform_operation: str, query_custom_keys: Dict,
+                                    upstream_table_id: int, downstream_table_id: int,
+                                    downstream_properties: Dict, upstream_properties: Dict) -> None:
+        """
+        Create an entry in the ais0113 table for column-level lineage
+        """
+        try:
+            # Extract column names from URNs
+            upstream_col_name = self.extract_column_name(upstream_col_urn)
+            downstream_col_name = self.extract_column_name(downstream_col_urn)
+
+            # Get column IDs
+            upstream_col_id = self.get_column_id(upstream_table_id, upstream_col_name)
+            downstream_col_id = self.get_column_id(downstream_table_id, downstream_col_name)
+
+            # Process URNs for owner and table information
+            upstream_dataset = DatasetUrn.from_string(upstream_urn)
+            downstream_dataset = DatasetUrn.from_string(downstream_urn)
+
+            upstream_content = upstream_dataset.get_dataset_name()
+            downstream_content = downstream_dataset.get_dataset_name()
+
+            upstream_owner = NameUtil.get_schema(upstream_content)
+            upstream_table = NameUtil.get_table_name(upstream_content)
+            upstream_sql_obj_type = get_sql_obj_type(upstream_table)
+            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content)
+            upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
+            upstream_system_biz_id = get_system_biz_id(upstream_properties)
+
+            downstream_owner = NameUtil.get_schema(downstream_content)
+            downstream_table = NameUtil.get_table_name(downstream_content)
+            downstream_sql_obj_type = get_sql_obj_type(downstream_table)
+            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content)
+            downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
+            downstream_system_biz_id = get_system_biz_id(downstream_properties)
+
+            # 컬럼 순서 가져오기
+            upstream_col_order_no = self.get_next_column_order(upstream_urn)
+            downstream_col_order_no = self.get_next_column_order(downstream_urn)
+
+            # Insert into ais0113
+            self.duckdb_conn.execute("""
+                INSERT INTO ais0113 (
+                    prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id,
+                    owner_name, table_name, caps_table_name, sql_obj_type,
+                    col_name, caps_col_name, col_value_yn, col_expr,
+                    col_name_org, caps_col_name_org,
+                    unique_owner_name, unique_owner_tgt_srv_id,
+                    system_biz_id,
+                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_col_id,
+                    call_obj_id, call_func_id, call_owner_name, call_table_name,
+                    call_caps_table_name, call_sql_obj_type,
+                    call_col_name, call_caps_col_name, call_col_value_yn, call_col_expr,
+                    call_col_name_org, call_caps_col_name_org,
+                    call_unique_owner_name, call_unique_owner_tgt_srv_id,
+                    call_system_biz_id,
+                    col_order_no,
+                    call_col_order_no, 
+                    adj_col_order_no,
+                    call_adj_col_order_no,                                        
+                    cond_mapping, data_maker, mapping_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
+            """, (
+                query_custom_keys.get('prj_id', ''),
+                int(query_custom_keys.get('file_id', 0)),
+                int(query_custom_keys.get('sql_id', 0)),
+                upstream_table_id,
+                upstream_col_id,
+                int(query_custom_keys.get('obj_id', 0)),
+                int(query_custom_keys.get('func_id', 0)),
+                upstream_owner,
+                upstream_table,
+                upstream_table.upper(),
+                upstream_sql_obj_type,
+                upstream_col_name,
+                upstream_col_name.upper() if upstream_col_name != '*' else '*',
+                'N',  # col_value_yn
+                transform_operation,  # col_expr
+                upstream_col_name,  # col_name_org
+                upstream_col_name.upper() if upstream_col_name != '*' else '*',  # caps_col_name_org
+                upstream_unique_owner,
+                upstream_unique_owner_tgt_srv_id,
+                upstream_system_biz_id,
+                query_custom_keys.get('prj_id', ''),
+                int(query_custom_keys.get('file_id', 0)),
+                int(query_custom_keys.get('sql_id', 0)),
+                downstream_table_id,
+                downstream_col_id,
+                int(query_custom_keys.get('obj_id', 0)),
+                int(query_custom_keys.get('func_id', 0)),
+                downstream_owner,
+                downstream_table,
+                downstream_table.upper(),
+                downstream_sql_obj_type,
+                downstream_col_name,
+                downstream_col_name.upper() if downstream_col_name != '*' else '*',
+                'N',  # call_col_value_yn
+                '',  # call_col_expr
+                downstream_col_name,  # call_col_name_org
+                downstream_col_name.upper() if downstream_col_name != '*' else '*',  # call_caps_col_name_org
+                downstream_unique_owner,
+                downstream_unique_owner_tgt_srv_id,
+                downstream_system_biz_id,
+                upstream_col_order_no,
+                downstream_col_order_no,
+                upstream_col_order_no,
+                downstream_col_order_no,
+                1,  # cond_mapping
+                'ingest_cli',  # data_maker
+                ''  # mapping_kind
+            ))
+            self.logger.debug(f"Created ais0113 entry for {upstream_col_name} -> {downstream_col_name}")
+        except Exception as e:
+            self.logger.error(f"Error creating ais0113 entry: {e}")
 
     def get_dataset_properties(self, dataset_urn: str) -> Dict:
         url = f"{self.config['datahub_api']['server']}/aspects/{DatasetUrn.url_encode(dataset_urn)}?aspect=datasetProperties&version=0"
@@ -380,157 +480,6 @@ class ConvertQtrackSource(Source):
             self.logger.error(f"The request timed out of {self.config['datahub_api']['timeout_sec']} sec")
         except requests.RequestException as e:
             self.logger.error(f"Unexpected error when trying to reach {url}: {e}")
-
-    def process_table_lineage(self, downstream: str, upstream_urn: str, query_custom_keys: Dict,
-                              downstream_table_id: int, upstream_table_id: int,
-                              downstream_properties: Dict, upstream_properties: Dict) -> None:
-        prj_id = query_custom_keys.get('prj_id', '')
-        file_id = int(query_custom_keys.get('file_id', 0))
-        sql_id = int(query_custom_keys.get('sql_id', 0))
-        obj_id = int(query_custom_keys.get('obj_id', 0))
-        func_id = int(query_custom_keys.get('func_id', 0))
-        query_type = query_custom_keys.get('query_type', '')
-        query_type_props_str = query_custom_keys.get('query_type_props', '{}')
-
-        # query_type_props가 문자열이므로 JSON 형식으로 파싱
-        if isinstance(query_type_props_str, str):
-            try:
-                query_type_props = json.loads(query_type_props_str)
-            except json.JSONDecodeError:
-                query_type_props = {}  # 파싱 오류 시 기본값으로 빈 딕셔너리 사용
-        else:
-            query_type_props = query_type_props_str  # 이미 딕셔너리인 경우 그대로 사용
-
-        # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
-        TEMPORARY_TABLE = '$TB'
-        REGULAR_TABLE = 'TBL'
-        FILE_TABLE = 'FIL'
-        upstream_sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
-        upstream_sql_obj_type = FILE_TABLE if 's3://' in upstream_urn else upstream_sql_obj_type
-        downstream_sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
-        downstream_sql_obj_type = FILE_TABLE if 's3://' in downstream else downstream_sql_obj_type
-
-        self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
-                            upstream_urn, upstream_sql_obj_type, upstream_table_id, upstream_properties)
-        self.insert_ais0102(prj_id, file_id, sql_id, obj_id, func_id, query_type,
-                            downstream, downstream_sql_obj_type, downstream_table_id, downstream_properties)
-
-    def insert_ais0102(self, prj_id: str, file_id: int, sql_id: int, obj_id: int, func_id: int,
-                       query_type: str, table_urn: str, sql_obj_type: str, table_id: int, properties: Dict) -> None:
-        system_biz_id = get_system_biz_id(properties)
-        system_tgt_srv_id = get_system_tgt_srv_id(properties)
-        owner_srv_id = get_owner_srv_id(properties)
-        system_id = get_system_id(properties)
-        biz_id = get_biz_id(properties)
-
-        try:
-            self.duckdb_conn.execute("""
-                    INSERT OR REPLACE INTO ais0102 
-                    (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,biz_id )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
-                """, (
-                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,
-                system_tgt_srv_id, owner_srv_id, system_id, biz_id))
-            self.logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {table_urn}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error inserting into ais0102: {e}")
-
-    def process_column_lineage(self, downstream: str, upstream_urn: str, fine_grained_lineages: List[Dict],
-                               query_custom_keys: Dict, downstream_table_id: int, upstream_table_id: int,
-                               downstream_properties: Dict, upstream_properties: Dict) -> None:
-        if not fine_grained_lineages:
-            self.create_virtual_column_lineage(downstream, upstream_urn, query_custom_keys,
-                                               downstream_table_id, upstream_table_id,
-                                               downstream_properties, upstream_properties)
-        else:
-            for lineage in fine_grained_lineages:
-                upstreams = lineage.get('upstreams', [])
-                downstreams = lineage.get('downstreams', [])
-                transform_operation = lineage.get('transformOperation', '')
-
-                if len(downstreams) == 1 and len(upstreams) >= 1:
-                    downstream_col = downstreams[0]
-                    for upstream_col in upstreams:
-                        self.insert_ais0103(upstream_col, downstream_col, query_custom_keys,
-                                            transform_operation, upstream_table_id, downstream_table_id,
-                                            upstream_properties, downstream_properties)
-
-                elif len(upstreams) == 1:
-                    upstream_col = upstreams[0]
-                    for downstream_col in downstreams:
-                        self.insert_ais0103(upstream_col, downstream_col, query_custom_keys,
-                                            transform_operation, upstream_table_id, downstream_table_id,
-                                            upstream_properties, downstream_properties)
-
-                else:
-                    for upstream_col in upstreams:
-                        for downstream_col in downstreams:
-                            self.insert_ais0103(upstream_col, downstream_col, query_custom_keys,
-                                                transform_operation, upstream_table_id, downstream_table_id,
-                                                upstream_properties, downstream_properties)
-
-    def insert_ais0103(self, upstream_col: str, downstream_col: str, query_custom_keys: Dict,
-                       transform_operation: str, upstream_table_id: int, downstream_table_id: int,
-                       upstream_properties: Dict, downstream_properties: Dict) -> None:
-        upstream_col_name = upstream_col.split(',')[-1].strip(')').split('(')[-1]
-        downstream_col_name = downstream_col.split(',')[-1].strip(')').split('(')[-1]
-
-        upstream_col_id = self.get_column_id(upstream_table_id, upstream_col_name)
-        downstream_col_id = self.get_column_id(downstream_table_id, downstream_col_name)
-
-        prj_id = query_custom_keys.get('prj_id', '')
-        file_id = int(query_custom_keys.get('file_id', 0))
-        sql_id = int(query_custom_keys.get('sql_id', 0))
-
-        try:
-            self.duckdb_conn.execute("""
-                    INSERT OR REPLACE INTO ais0103 
-                    (prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id, column_urn)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (prj_id, file_id, sql_id, upstream_table_id, upstream_col_id, 0, 0, upstream_col))
-
-            self.duckdb_conn.execute("""
-                    INSERT OR REPLACE INTO ais0103 
-                    (prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id, column_urn, transform_operation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                prj_id, file_id, sql_id, downstream_table_id, downstream_col_id, 0, 0, downstream_col,
-                transform_operation))
-
-            self.logger.debug(f"Inserted/Updated records in ais0103 for columns: {upstream_col} -> {downstream_col}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error inserting into ais0103: {e}")
-
-    def create_virtual_column_lineage(self, downstream: str, upstream_urn: str, query_custom_keys: Dict,
-                                      downstream_table_id: int, upstream_table_id: int,
-                                      downstream_properties: Dict, upstream_properties: Dict) -> None:
-        prj_id = query_custom_keys.get('prj_id', '')
-        file_id = int(query_custom_keys.get('file_id', 0))
-        sql_id = int(query_custom_keys.get('sql_id', 0))
-
-        upstream_virtual_col = f"urn:li:schemaField:({upstream_urn},*)"
-        downstream_virtual_col = f"urn:li:schemaField:({downstream},*)"
-
-        upstream_virtual_col_id = self.get_column_id(upstream_table_id, "*")
-        downstream_virtual_col_id = self.get_column_id(downstream_table_id, "*")
-
-        try:
-            self.duckdb_conn.execute("""
-                    INSERT OR REPLACE INTO ais0103 
-                    (prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id, column_urn)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (prj_id, file_id, sql_id, upstream_table_id, upstream_virtual_col_id, 0, 0, upstream_virtual_col))
-
-            self.duckdb_conn.execute("""
-                    INSERT OR REPLACE INTO ais0103 
-                    (prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id, column_urn)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                prj_id, file_id, sql_id, downstream_table_id, downstream_virtual_col_id, 0, 0, downstream_virtual_col))
-
-            self.logger.debug(f"Created virtual column lineage: {upstream_virtual_col} -> {downstream_virtual_col}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error creating virtual column lineage: {e}")
 
     def populate_table_with_batch(self, table_name: str, df_insert: pd.DataFrame, batch_size: int = 1000):
         total_rows = len(df_insert)
@@ -564,57 +513,71 @@ class ConvertQtrackSource(Source):
     def populate_ais0080(self):
         self.logger.info("Populating ais0080 from ais0112")
         try:
-            self.duckdb_conn.execute("""
-                INSERT INTO ais0102_work (
-                    prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id,biz_id
-                )
-                SELECT DISTINCT
-                    prj_id, file_id, table_id,sql_obj_type, table_urn, 
-                    system_biz_id, system_tgt_srv_id, owner_srv_id, system_id,biz_id
-                FROM ais0102
-            """)
-            self.duckdb_conn.execute("""
-                INSERT INTO ais0080_work (
-                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_file_id, src_mte_table_id,
-                    src_owner_tgt_srv_id, src_system_biz_id,
-                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type,tgt_file_id, tgt_mte_table_id,
-                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
-                    cond_mapping_bit, mapping_kind
-                )
-                SELECT DISTINCT
-                    prj_id, owner_name, caps_table_name, table_name, sql_obj_type, file_id, cast(table_id as VARCHAR),
-                    unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name, call_sql_obj_type,call_file_id, cast(call_table_id as VARCHAR),
-                    call_unique_owner_tgt_srv_id, call_system_biz_id,
-                    cond_mapping_bit, mapping_kind
-                FROM ais0112
-            """)
 
             # SQL 쿼리
             sql_query = """
-            SELECT
-                w80.src_prj_id, w80.src_owner_name, w80.src_caps_table_name, w80.src_table_name, w80.src_caps_table_name AS src_table_name_org, w80.src_table_type, cast(w80.src_file_id as VARCHAR) as src_mte_table_id, 
-                w80.tgt_prj_id, w80.tgt_owner_name, w80.tgt_caps_table_name, w80.tgt_table_name, w80.tgt_caps_table_name AS tgt_table_name_org, w80.tgt_table_type, cast(w80.tgt_file_id as VARCHAR) as tgt_mte_table_id, 
-                w80.src_owner_tgt_srv_id, w80.tgt_owner_tgt_srv_id, w80.cond_mapping_bit, w80.mapping_kind, w80.src_system_biz_id, w80.tgt_system_biz_id,
-                src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
-                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id
-            FROM
-                ais0080_work w80 
-            LEFT JOIN
-                ais0102_work src ON w80.src_prj_id = src.prj_id AND w80.src_mte_table_id = src.table_id
-            LEFT JOIN
-                ais0102_work tgt ON w80.tgt_prj_id = tgt.prj_id AND w80.tgt_mte_table_id = tgt.table_id
+                SELECT DISTINCT
+                    prj_id AS src_prj_id, 
+                    owner_name AS src_owner_name, 
+                    caps_table_name AS src_caps_table_name, 
+                    table_name AS src_table_name,
+                    table_name AS src_table_name_org,
+                    sql_obj_type AS src_table_type, 
+                    cast(file_id as VARCHAR) AS src_mte_table_id,
+                    call_prj_id AS tgt_prj_id, 
+                    call_owner_name AS tgt_owner_name, 
+                    call_caps_table_name AS tgt_caps_table_name, 
+                    call_table_name AS tgt_table_name, 
+                    call_table_name AS tgt_table_name_org,
+                    call_sql_obj_type AS tgt_table_type, 
+                    cast(call_file_id as VARCHAR) AS tgt_mte_table_id,
+                    unique_owner_tgt_srv_id AS src_owner_tgt_srv_id, 
+                    call_unique_owner_tgt_srv_id AS tgt_owner_tgt_srv_id, 
+                    cond_mapping_bit, 
+                    mapping_kind, 
+                    system_biz_id AS src_system_biz_id,
+                    call_system_biz_id AS tgt_system_biz_id,
+                    CASE 
+                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
+                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
+                        ELSE split_part(unique_owner_name, '.', 1)
+                    END AS src_db_instance_org,
+                    CASE 
+                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
+                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
+                        ELSE split_part(unique_owner_name, '.', 2)
+                    END AS src_schema_org,
+                    CASE 
+                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
+                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
+                        ELSE split_part(call_unique_owner_name, '.', 1)
+                    END AS tgt_db_instance_org,
+                    CASE 
+                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
+                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
+                        ELSE split_part(call_unique_owner_name, '.', 2)
+                    END AS tgt_schema_org,          
+                    CASE 
+                        WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' THEN split_part(system_biz_id, '_', 1)
+                        ELSE NULL
+                    END AS src_system_id,
+                    CASE 
+                        WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
+                        ELSE split_part(system_biz_id, '_', 2)
+                    END AS src_biz_id,      
+                    CASE 
+                        WHEN split_part(call_system_biz_id, '_', 1) LIKE '[owner%' THEN split_part(call_system_biz_id, '_', 1)
+                        ELSE NULL
+                    END AS tgt_system_id,
+                    CASE 
+                        WHEN split_part(call_system_biz_id, '_', 1) LIKE '[owner%' AND split_part(call_system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
+                        ELSE split_part(call_system_biz_id, '_', 2)
+                    END AS tgt_biz_id                                               
+                FROM ais0112
             """
 
             # 쿼리 실행 및 데이터 가져오기
             df = self.duckdb_conn.execute(sql_query).df()
-
-            # Python 함수 적용
-            df['src_db_instance_org'] = df['src_table_urn'].apply(get_db_name)
-            df['src_schema_org'] = df['src_table_urn'].apply(get_schema_name)
-            df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
-            df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
             # ais0080 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
             columns_order = [
@@ -622,10 +585,11 @@ class ConvertQtrackSource(Source):
                 'src_table_type', 'src_mte_table_id',
                 'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org',
                 'tgt_table_type', 'tgt_mte_table_id',
-                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping_bit', 'mapping_kind', 'src_system_biz_id',
-                'tgt_system_biz_id',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id',
+                'cond_mapping_bit', 'mapping_kind',
+                'src_system_biz_id', 'tgt_system_biz_id',
                 'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
-                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id'
+                'src_system_id', 'src_biz_id', 'tgt_system_id', 'tgt_biz_id'
             ]
 
             df_insert = df[columns_order]
@@ -639,69 +603,79 @@ class ConvertQtrackSource(Source):
     def populate_ais0081(self):
         self.logger.info("Populating ais0081 from ais0113")
         try:
-            self.duckdb_conn.execute("""
-                CREATE TABLE IF NOT EXISTS ais0081_work AS 
-                SELECT
-                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_mte_table_id,
-                    src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
-                    src_owner_tgt_srv_id, src_system_biz_id,
-                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_mte_table_id, 
-                    tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
-                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
-                    cond_mapping, mapping_kind, data_maker
-                FROM ais0081
-            """)
-            self.duckdb_conn.execute("""
-                INSERT INTO ais0081_work (
-                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name,src_table_type, src_file_id,src_mte_table_id,
-                    src_caps_col_name, src_col_name, src_col_value_yn,src_mte_col_id,
-                    src_owner_tgt_srv_id, src_system_biz_id,
-                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name,tgt_table_type, tgt_file_id,tgt_mte_table_id, 
-                    tgt_caps_col_name, tgt_col_name, tgt_col_value_yn,tgt_mte_col_id,
-                    tgt_owner_tgt_srv_id, tgt_system_biz_id,
-                    cond_mapping, mapping_kind, data_maker
-                )
-                SELECT DISTINCT
-                    prj_id, owner_name, caps_table_name, table_name,sql_obj_type, file_id, cast(table_id as VARCHAR),
-                    caps_col_name, col_name, col_value_yn,col_id,
-                    unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_owner_name, call_caps_table_name, call_table_name,call_sql_obj_type, call_file_id, cast(call_table_id as VARCHAR),
-                    call_caps_col_name, call_col_name, call_col_value_yn,call_col_id,
-                    call_unique_owner_tgt_srv_id, call_system_biz_id,
-                    cond_mapping, mapping_kind, data_maker
-                FROM ais0113
-            """)
-
             # SQL 쿼리
             sql_query = """
-            SELECT
-                w81.src_prj_id, w81.src_owner_name, w81.src_caps_table_name, w81.src_table_name, w81.src_caps_table_name AS src_table_name_org, w81.src_table_type, cast(w81.src_file_id as VARCHAR) as src_mte_table_id,
-                case when w81.src_caps_col_name=='*' then '[*+*]' else w81.src_caps_col_name end as src_caps_col_name , 
-                case when w81.src_col_name=='*' then '[*+*]' else w81.src_col_name end as src_col_name , 
-                w81.src_col_value_yn, w81.src_mte_col_id, 
-                w81.tgt_prj_id, w81.tgt_owner_name, w81.tgt_caps_table_name, w81.tgt_table_name, w81.tgt_caps_table_name AS tgt_table_name_org, w81.tgt_table_type, cast(w81.tgt_file_Id as VARCHAR ) as tgt_mte_table_id,
-                case when w81.tgt_caps_col_name=='*' then '[*+*]' else w81.tgt_caps_col_name end as tgt_caps_col_name , 
-                case when w81.tgt_col_name=='*' then '[*+*]' else w81.tgt_col_name end as tgt_col_name , 
-                w81.tgt_col_value_yn, w81.tgt_mte_col_id, 
-                w81.src_owner_tgt_srv_id, w81.tgt_owner_tgt_srv_id, w81.cond_mapping, w81.mapping_kind, w81.src_system_biz_id, w81.tgt_system_biz_id, w81.data_maker,
-                src.table_urn AS src_table_urn, tgt.table_urn AS tgt_table_urn,
-                src.system_id AS src_system_id, tgt.system_id AS tgt_system_id, src.biz_id AS src_biz_id, tgt.biz_id AS tgt_biz_id
-            FROM
-                ais0081_work w81
-            LEFT JOIN
-                ais0102_work src ON w81.src_prj_id = src.prj_id AND w81.src_mte_table_id = src.table_id
-            LEFT JOIN
-                ais0102_work tgt ON w81.tgt_prj_id = tgt.prj_id AND w81.tgt_mte_table_id = tgt.table_id
+                SELECT DISTINCT
+                    prj_id AS src_prj_id, 
+                    owner_name AS src_owner_name, 
+                    caps_table_name AS src_caps_table_name, 
+                    table_name AS src_table_name,
+                    table_name AS src_table_name_org,
+                    sql_obj_type AS src_table_type, 
+                    cast(file_id as VARCHAR) AS src_mte_table_id,
+                    caps_col_name AS src_caps_col_name, 
+                    col_name AS src_col_name, 
+                    col_value_yn AS src_col_value_yn,
+                    col_id AS src_mte_col_id,
+                    call_prj_id AS tgt_prj_id, 
+                    call_owner_name AS tgt_owner_name, 
+                    call_caps_table_name AS tgt_caps_table_name, 
+                    call_table_name AS tgt_table_name, 
+                    call_table_name AS tgt_table_name_org,
+                    call_sql_obj_type AS tgt_table_type,
+                    cast(call_file_id as VARCHAR) AS tgt_mte_table_id,
+                    call_caps_col_name AS tgt_caps_col_name, 
+                    call_col_name AS tgt_col_name, 
+                    call_col_value_yn AS tgt_col_value_yn,
+                    call_col_id AS tgt_mte_col_id,
+                    unique_owner_tgt_srv_id AS src_owner_tgt_srv_id, 
+                    call_unique_owner_tgt_srv_id AS tgt_owner_tgt_srv_id, 
+                    cond_mapping, 
+                    mapping_kind, 
+                    data_maker,
+                    system_biz_id AS src_system_biz_id,
+                    call_system_biz_id AS tgt_system_biz_id,
+                    CASE 
+                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
+                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
+                        ELSE split_part(unique_owner_name, '.', 1)
+                    END AS src_db_instance_org,
+                    CASE 
+                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
+                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
+                        ELSE split_part(unique_owner_name, '.', 2)
+                    END AS src_schema_org,
+                    CASE 
+                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
+                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
+                        ELSE split_part(call_unique_owner_name, '.', 1)
+                    END AS tgt_db_instance_org,
+                    CASE 
+                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
+                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
+                        ELSE split_part(call_unique_owner_name, '.', 2)
+                    END AS tgt_schema_org,          
+                    CASE 
+                        WHEN split_part(system_biz_id, '_', 1) LIKE 'owner%' THEN split_part(system_biz_id, '_', 1)
+                        ELSE NULL
+                    END AS src_system_id,
+                    CASE 
+                        WHEN split_part(system_biz_id, '_', 1) LIKE 'owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
+                        ELSE split_part(system_biz_id, '_', 2)
+                    END AS src_biz_id,      
+                    CASE 
+                        WHEN split_part(call_system_biz_id, '_', 1) LIKE 'owner%' THEN split_part(call_system_biz_id, '_', 1)
+                        ELSE NULL
+                    END AS tgt_system_id,
+                    CASE 
+                        WHEN split_part(call_system_biz_id, '_', 1) LIKE 'owner%' AND split_part(call_system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
+                        ELSE split_part(call_system_biz_id, '_', 2)
+                    END AS tgt_biz_id                                               
+                FROM ais0113
             """
 
             # 쿼리 실행 및 데이터 가져오기
             df = self.duckdb_conn.execute(sql_query).df()
-
-            # Python 함수 적용
-            df['src_db_instance_org'] = df['src_table_urn'].apply(get_db_name)
-            df['src_schema_org'] = df['src_table_urn'].apply(get_schema_name)
-            df['tgt_db_instance_org'] = df['tgt_table_urn'].apply(get_db_name)
-            df['tgt_schema_org'] = df['tgt_table_urn'].apply(get_schema_name)
 
             # ais0081 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
             columns_order = [
@@ -711,10 +685,11 @@ class ConvertQtrackSource(Source):
                 'tgt_prj_id', 'tgt_owner_name', 'tgt_caps_table_name', 'tgt_table_name', 'tgt_table_name_org',
                 'tgt_table_type', 'tgt_mte_table_id',
                 'tgt_caps_col_name', 'tgt_col_name', 'tgt_col_value_yn', 'tgt_mte_col_id',
-                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id', 'cond_mapping', 'mapping_kind', 'src_system_biz_id',
-                'tgt_system_biz_id', 'data_maker',
+                'src_owner_tgt_srv_id', 'tgt_owner_tgt_srv_id',
+                'cond_mapping', 'mapping_kind', 'data_maker',
+                'src_system_biz_id', 'tgt_system_biz_id',
                 'src_db_instance_org', 'src_schema_org', 'tgt_db_instance_org', 'tgt_schema_org',
-                'src_system_id', 'tgt_system_id', 'src_biz_id', 'tgt_biz_id'
+                'src_system_id', 'src_biz_id', 'tgt_system_id', 'tgt_biz_id'
             ]
 
             df_insert = df[columns_order]
@@ -729,6 +704,8 @@ class ConvertQtrackSource(Source):
         self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
 
         try:
+            # Delete existing records first
+            await self.delete_existing_records()
 
             # Transfer ais0102
             await self.transfer_ais0102()
@@ -738,9 +715,6 @@ class ConvertQtrackSource(Source):
 
             # Transfer ais0113
             await self.transfer_table('ais0113')
-
-            # Delete existing records from ais0080 and ais0081
-            await self.delete_existing_records()
 
             # Transfer ais0080
             await self.transfer_table_with_sequence('ais0080')
@@ -958,9 +932,12 @@ class ConvertQtrackSource(Source):
         await asyncio.gather(*tasks)
 
     async def delete_existing_records(self):
-        self.logger.info("Deleting existing records from ais0080 and ais0081")
+        self.logger.info("Deleting existing records from target tables")
 
         delete_queries = [
+            "DELETE FROM ais0102 WHERE prj_id = %s",
+            "DELETE FROM ais0112 WHERE prj_id = %s",
+            "DELETE FROM ais0113 WHERE prj_id = %s",
             "DELETE FROM ais0080 WHERE src_prj_id = %s",
             "DELETE FROM ais0081 WHERE src_prj_id = %s"
         ]
