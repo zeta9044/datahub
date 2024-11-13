@@ -5,8 +5,6 @@ import chardet
 from functools import wraps
 
 import psutil
-from mypyc.primitives.registry import custom_primitive_op
-
 from datahub.cli.specific.dataset_cli import dataset
 from datahub.metadata._urns.urn_defs import DatasetUrn
 from datahub.metadata.schema_classes import (
