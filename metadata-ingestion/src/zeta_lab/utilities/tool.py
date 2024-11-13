@@ -22,8 +22,6 @@ from datahub.metadata.schema_classes import (
     RecordTypeClass
 )
 import xml.etree.ElementTree as ET
-
-from unit.api.source_helpers.test_incremental_lineage_helper import system_metadata
 from zeta_lab.utilities.decrypt_file import DecryptFile
 
 logger = logging.getLogger(__name__)
