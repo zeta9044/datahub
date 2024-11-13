@@ -258,7 +258,7 @@ class ConvertQtrackSource(Source):
             upstream_table = NameUtil.get_table_name(upstream_content)
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
             upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
-            upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
+            upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
             upstream_system_biz_id = get_system_biz_id(upstream_properties)
 
             # Process downstream URN
@@ -268,7 +268,7 @@ class ConvertQtrackSource(Source):
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
             downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
-            downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
+            downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
             downstream_system_biz_id = get_system_biz_id(downstream_properties)
 
             # Insert into ais0112
@@ -405,14 +405,14 @@ class ConvertQtrackSource(Source):
             upstream_table = NameUtil.get_table_name(upstream_content)
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
             upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
-            upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
+            upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
             upstream_system_biz_id = get_system_biz_id(upstream_properties)
 
             downstream_owner = NameUtil.get_schema(downstream_content).upper()
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
             downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
-            downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
+            downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
             downstream_system_biz_id = get_system_biz_id(downstream_properties)
 
             # 컬럼 순서 가져오기
