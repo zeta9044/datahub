@@ -593,18 +593,12 @@ class ConvertQtrackSource(Source):
                         WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
                         ELSE split_part(call_unique_owner_name, '.', 2)
                     END AS tgt_schema_org,          
-                    CASE 
-                        WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' THEN split_part(system_biz_id, '_', 1)
-                        ELSE NULL
-                    END AS src_system_id,
+                    split_part(system_biz_id, '_', 1) AS src_system_id,
                     CASE 
                         WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
                         ELSE split_part(system_biz_id, '_', 2)
                     END AS src_biz_id,      
-                    CASE 
-                        WHEN split_part(call_system_biz_id, '_', 1) LIKE '[owner%' THEN split_part(call_system_biz_id, '_', 1)
-                        ELSE NULL
-                    END AS tgt_system_id,
+                    split_part(system_biz_id, '_', 1) AS tgt_system_id,
                     CASE 
                         WHEN split_part(call_system_biz_id, '_', 1) LIKE '[owner%' AND split_part(call_system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
                         ELSE split_part(call_system_biz_id, '_', 2)
@@ -691,18 +685,12 @@ class ConvertQtrackSource(Source):
                         WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
                         ELSE split_part(call_unique_owner_name, '.', 2)
                     END AS tgt_schema_org,          
+                    split_part(system_biz_id, '_', 1) AS src_system_id,
                     CASE 
-                        WHEN split_part(system_biz_id, '_', 1) LIKE 'owner%' THEN split_part(system_biz_id, '_', 1)
-                        ELSE NULL
-                    END AS src_system_id,
-                    CASE 
-                        WHEN split_part(system_biz_id, '_', 1) LIKE 'owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
+                        WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
                         ELSE split_part(system_biz_id, '_', 2)
                     END AS src_biz_id,      
-                    CASE 
-                        WHEN split_part(call_system_biz_id, '_', 1) LIKE 'owner%' THEN split_part(call_system_biz_id, '_', 1)
-                        ELSE NULL
-                    END AS tgt_system_id,
+                    split_part(system_biz_id, '_', 1) AS tgt_system_id,
                     CASE 
                         WHEN split_part(call_system_biz_id, '_', 1) LIKE 'owner%' AND split_part(call_system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
                         ELSE split_part(call_system_biz_id, '_', 2)
