@@ -33,7 +33,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
         with pg_engine.connect() as pg_conn:
             select_stmt = """
                 SELECT DISTINCT
-                       t4.job_id AS job_id,
+                       t1.prj_id AS prj_id,
                        t1.system_tgt_srv_id AS tgt_srv_id,
                        (SELECT LOWER(code_name) 
                         FROM ais2100 
@@ -63,7 +63,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
         conn = duckdb.connect(duckdb_path)
         conn.execute('''
         CREATE TABLE IF NOT EXISTS meta_instance (
-            job_id TEXT,
+            prj_id TEXT,
             tgt_srv_id TEXT,
             platform TEXT,
             platform_instance TEXT,
@@ -72,7 +72,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
             system_id TEXT,
             biz_id TEXT,
             system_biz_id TEXT,
-            PRIMARY KEY (job_id, tgt_srv_id, platform_instance)
+            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance)
         )
         ''')
 

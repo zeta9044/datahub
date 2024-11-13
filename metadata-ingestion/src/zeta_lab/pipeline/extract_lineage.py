@@ -28,7 +28,7 @@ def get_meta_instance(db_path: str, prj_id: str) -> tuple:
         query = """
             SELECT lower(platform), lower(platform_instance), lower(default_db), lower(default_schema) 
             FROM main.meta_instance 
-            WHERE job_id = ?
+            WHERE prj_id = ?
             LIMIT 1
         """
         result = conn.execute(query, [prj_id]).fetchone()
