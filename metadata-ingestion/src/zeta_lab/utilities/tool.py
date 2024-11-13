@@ -140,7 +140,6 @@ def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
         "RECORD": RecordTypeClass
     }
 
-
     # Extract the base type from the native data type
     base_type = native_data_type.split('(')[0].upper()
 
@@ -179,6 +178,7 @@ def log_execution_time(log_file='execution_time.log'):
 
     return decorator
 
+
 def format_time(seconds):
     if seconds >= 3600:
         hours = int(seconds // 3600)
@@ -191,6 +191,7 @@ def format_time(seconds):
         return f"{minutes}m {seconds:.2f}s"
     else:
         return f"{seconds:.2f}s"
+
 
 def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
     """
@@ -244,7 +245,6 @@ def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
         "RECORD": RecordTypeClass
     }
 
-
     # Extract the base type from the native data type
     base_type = native_data_type.split('(')[0].upper()
 
@@ -256,6 +256,7 @@ def infer_type_from_native(native_data_type: str) -> SchemaFieldDataTypeClass:
         return SchemaFieldDataTypeClass(type=StringTypeClass())
 
     return SchemaFieldDataTypeClass(type=type_class())
+
 
 class NameUtil:
     @staticmethod
@@ -317,6 +318,7 @@ def get_system_biz_id(props):
 
     return system_biz_id
 
+
 def get_system_tgt_srv_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
@@ -339,6 +341,7 @@ def get_system_tgt_srv_id(props):
         return "NA"
 
     return tgt_srv_id
+
 
 def get_owner_srv_id(props):
     # If props is None, return "[owner_undefined]"
@@ -363,6 +366,7 @@ def get_owner_srv_id(props):
 
     return owner_srv_id
 
+
 def get_system_id(props):
     # If props is None, return "[owner_undefined]"
     if props is None:
@@ -385,6 +389,7 @@ def get_system_id(props):
         return "[owner"
 
     return system_id
+
 
 def get_biz_id(props):
     # If props is None, return "[owner_undefined]"
@@ -409,27 +414,32 @@ def get_biz_id(props):
 
     return biz_id
 
+
 def get_db_name(table_urn):
     dataset_urn = DatasetUrn.from_string(table_urn)
     table_content = dataset_urn.get_dataset_name()
     return NameUtil.get_db_name(table_content).upper()
+
 
 def get_schema_name(table_urn):
     dataset_urn = DatasetUrn.from_string(table_urn)
     table_content = dataset_urn.get_dataset_name()
     return NameUtil.get_schema(table_content).upper()
 
+
 def get_sql_obj_type(table_name):
     # 입력 문자열을 소문자로 변환
     table_name = table_name.lower()
 
-    # 조건 검사
-    if table_name.startswith('s3://') and (table_name.endswith('fil') or
-                                           table_name.endswith('_temp') or
-                                           table_name.endswith('_tmp') or
-                                           table_name.endswith('_stage')):
+    if table_name.startswith('s3://'):
+        return 'fil'
+
+    if (table_name.endswith('_temp') or
+            table_name.endswith('_tmp') or
+            table_name.endswith('_stage')):
         return '$tb'
     return 'tbl'
+
 
 def extract_db_info(service_xml_path, security_properties_path):
     """
@@ -473,6 +483,7 @@ def extract_db_info(service_xml_path, security_properties_path):
     except Exception as e:
         raise ValueError(f"Error extracting DB info: {str(e)}")
 
+
 def extract_dsn_from_xml_file(service_xml_path, security_properties_path):
     """
     Extract PostgreSQL connection information from XML file and security properties,
@@ -489,6 +500,7 @@ def extract_dsn_from_xml_file(service_xml_path, security_properties_path):
     except ValueError as e:
         print(f"Error extracting DSN: {str(e)}")
         return None
+
 
 def get_server_pid():
     """
