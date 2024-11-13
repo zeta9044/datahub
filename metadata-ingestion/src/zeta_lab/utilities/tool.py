@@ -429,7 +429,7 @@ def get_sql_obj_type(table_name):
                                            table_name.endswith('_tmp') or
                                            table_name.endswith('_stage')):
         return '$tb'
-    return 'TBL'
+    return 'tbl'
 
 def extract_db_info(service_xml_path, security_properties_path):
     """

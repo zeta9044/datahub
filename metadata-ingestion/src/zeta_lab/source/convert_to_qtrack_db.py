@@ -167,9 +167,9 @@ class ConvertQtrackSource(Source):
             query_type_props = query_type_props_str  # 이미 딕셔너리인 경우 그대로 사용
 
         # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
-        TEMPORARY_TABLE = '$TB'
-        REGULAR_TABLE = 'TBL'
-        FILE_TABLE = 'FIL'
+        TEMPORARY_TABLE = '$tb'
+        REGULAR_TABLE = 'tbl'
+        FILE_TABLE = 'fil'
         stream_dataset = DatasetUrn.from_string(stream_urn)
         stream_content = stream_dataset.get_dataset_name()
         stream_table = NameUtil.get_table_name(stream_content)
@@ -254,20 +254,20 @@ class ConvertQtrackSource(Source):
             # Process upstream URN
             upstream_dataset = DatasetUrn.from_string(upstream_urn)
             upstream_content = upstream_dataset.get_dataset_name()
-            upstream_owner = NameUtil.get_schema(upstream_content)
+            upstream_owner = NameUtil.get_schema(upstream_content).upper()
             upstream_table = NameUtil.get_table_name(upstream_content)
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
-            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content)
+            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
             upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
             upstream_system_biz_id = get_system_biz_id(upstream_properties)
 
             # Process downstream URN
             downstream_dataset = DatasetUrn.from_string(downstream_urn)
             downstream_content = downstream_dataset.get_dataset_name()
-            downstream_owner = NameUtil.get_schema(downstream_content)
+            downstream_owner = NameUtil.get_schema(downstream_content).upper()
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
-            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content)
+            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
             downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
             downstream_system_biz_id = get_system_biz_id(downstream_properties)
 
@@ -401,17 +401,17 @@ class ConvertQtrackSource(Source):
             upstream_content = upstream_dataset.get_dataset_name()
             downstream_content = downstream_dataset.get_dataset_name()
 
-            upstream_owner = NameUtil.get_schema(upstream_content)
+            upstream_owner = NameUtil.get_schema(upstream_content).upper()
             upstream_table = NameUtil.get_table_name(upstream_content)
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
-            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content)
+            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
             upstream_unique_owner_tgt_srv_id = get_owner_srv_id(upstream_properties)
             upstream_system_biz_id = get_system_biz_id(upstream_properties)
 
-            downstream_owner = NameUtil.get_schema(downstream_content)
+            downstream_owner = NameUtil.get_schema(downstream_content).upper()
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
-            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content)
+            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
             downstream_unique_owner_tgt_srv_id = get_owner_srv_id(downstream_properties)
             downstream_system_biz_id = get_system_biz_id(downstream_properties)
 
