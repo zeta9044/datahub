@@ -7,7 +7,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
-from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List
 from urllib.parse import unquote
 
@@ -161,17 +160,13 @@ def log_time(func):
     async def wrapper(*args, **kwargs):
         start_time = time.time()
         MetricsManager.track_request(func.__name__)
-        try:
-            result = await func(*args, **kwargs)
-            end_time = time.time()
-            elapsed_time = format_time(end_time - start_time)
-            MetricsManager.track_latency(func.__name__, elapsed_time)
-            logging.info(f"{func.__name__} took {elapsed_time}")
-            request_times[func.__name__] = request_times.get(func.__name__, []) + [elapsed_time]
-            return result
-        except Exception as e:
-            logging.error(f"Error in {func.__name__}: {e}")
-            raise
+        result = await func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_time = format_time(end_time - start_time)
+        MetricsManager.track_latency(func.__name__, elapsed_time)
+        logging.info(f"{func.__name__} took {elapsed_time}")
+        request_times[func.__name__] = request_times.get(func.__name__, []) + [elapsed_time]
+        return result
     return wrapper
 
 @log_time
