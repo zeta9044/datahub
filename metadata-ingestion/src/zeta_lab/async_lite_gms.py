@@ -1,24 +1,21 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
 from logging.handlers import RotatingFileHandler
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from urllib.parse import unquote
-from datetime import datetime, timedelta
 
 import click
 import duckdb
+from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Histogram, start_http_server
-from cachetools import TTLCache
-from concurrent.futures import ThreadPoolExecutor
 
 from utilities.tool import format_time
 
@@ -544,7 +541,7 @@ async def graphql_endpoint(request: Request):
             logging.info(f"SQL parameters: {params}")
 
             db_manager = app.state.db_manager
-            result = await db_manager.execute_query(query, params).fetchall()
+            result = await db_manager.execute_query(query, params)
             logging.info(f"SQL query result: {result}")
 
             search_results = []
