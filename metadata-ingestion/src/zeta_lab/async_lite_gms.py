@@ -55,7 +55,7 @@ class DatabaseManager:
         self.db_file = db_file
         self.conn = None
         self._lock = asyncio.Lock()
-        
+
     @contextmanager
     def _transaction(self):
         """Context manager for database transactions"""
@@ -604,17 +604,30 @@ async def health_check():
         queue_size = queue.qsize()
         db_manager = app.state.db_manager
 
-        # Get performance metrics
+        # Calculate average response times
         avg_response_times = {}
         for endpoint, latencies in request_metrics['latencies'].items():
             if latencies:
-                avg_response_times[endpoint] = sum(latencies) / len(latencies)
+                # Convert all latencies to float if they're strings
+                numeric_latencies = []
+                for lat in latencies:
+                    if isinstance(lat, str):
+                        try:
+                            # Remove any units (ms, s) and convert to float
+                            lat = float(''.join(c for c in lat if c.isdigit() or c == '.'))
+                        except ValueError:
+                            continue
+                    numeric_latencies.append(float(lat))
+
+                if numeric_latencies:
+                    avg_response_times[endpoint] = f"{sum(numeric_latencies) / len(numeric_latencies):.2f}ms"
 
         # Calculate queue size statistics
+        queue_sizes = request_metrics['queue_sizes']
         queue_stats = {
             'current_size': queue_size,
-            'avg_size': sum(request_metrics['queue_sizes']) / len(request_metrics['queue_sizes']) if request_metrics['queue_sizes'] else 0,
-            'max_size': max(request_metrics['queue_sizes']) if request_metrics['queue_sizes'] else 0
+            'avg_size': f"{sum(queue_sizes) / len(queue_sizes):.2f}" if queue_sizes else "0",
+            'max_size': f"{max(queue_sizes)}" if queue_sizes else "0"
         }
 
         # Get cache stats
@@ -632,11 +645,12 @@ async def health_check():
             'queue_statistics': queue_stats
         }
 
-        # Get database metrics
+        # Calculate database metrics
+        db_latencies = request_metrics['db_latencies']
         db_stats = {
-            'avg_operation_time': sum(request_metrics['db_latencies']) / len(request_metrics['db_latencies']) if request_metrics['db_latencies'] else 0,
-            'max_operation_time': max(request_metrics['db_latencies']) if request_metrics['db_latencies'] else 0,
-            'total_operations': len(request_metrics['db_latencies'])
+            'avg_operation_time': f"{sum(db_latencies) / len(db_latencies):.3f}ms" if db_latencies else "0ms",
+            'max_operation_time': f"{max(db_latencies):.3f}ms" if db_latencies else "0ms",
+            'total_operations': len(db_latencies)
         }
 
         return {

@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict, List, Any
+from urllib.parse import quote
 
 class AsyncLiteGMSLoadTestV2:
     def __init__(self, base_url="http://localhost:8000"):
@@ -16,6 +17,97 @@ class AsyncLiteGMSLoadTestV2:
             'queue_sizes': [],
             'latencies': {},
             'db_latencies': [],
+        }
+
+    def generate_test_payloads(self):
+        """Generate test payloads for different endpoints"""
+        timestamp = int(time.time())
+        test_urn = f"urn:li:dataset:(urn:li:dataPlatform:mysql,test_table_{timestamp},PROD)"
+        encoded_urn = quote(test_urn)
+
+        return {
+            "entities": {
+                "method": "POST",
+                "endpoint": "/entities",
+                "params": {"action": "ingest"},
+                "payload": {
+                    "entity": {
+                        "value": {
+                            "dataset": {
+                                "urn": test_urn,
+                                "aspects": [
+                                    {
+                                        "SchemaMetadata": {
+                                            "fields": [
+                                                {"fieldPath": "id", "nativeDataType": "int"},
+                                                {"fieldPath": "name", "nativeDataType": "varchar"},
+                                                {"fieldPath": "value", "nativeDataType": "double"}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+            "aspects": {
+                "method": "POST",
+                "endpoint": "/aspects",
+                "params": {"action": "ingestProposal"},
+                "payload": {
+                    "proposal": {
+                        "entityUrn": test_urn,
+                        "aspectName": "datasetProperties",
+                        "aspect": {
+                            "value": json.dumps({
+                                "description": "Test dataset description",
+                                "customProperties": {
+                                    "team": "data_platform",
+                                    "sla": "tier_1"
+                                }
+                            })
+                        }
+                    }
+                }
+            },
+            "get_aspect": {
+                "method": "GET",
+                "endpoint": f"/aspects/{encoded_urn}",
+                "params": {
+                    "aspect": "datasetProperties",
+                    "version": "0"
+                },
+                "payload": None
+            },
+            "graphql": {
+                "method": "POST",
+                "endpoint": "/api/graphql",
+                "params": None,
+                "payload": {
+                    "query": """
+                        query scrollAcrossEntities($input: String) {
+                            scrollAcrossEntities(input: $input) {
+                                entities {
+                                    urn
+                                    type
+                                }
+                            }
+                        }
+                    """,
+                    "variables": {
+                        "orFilters": [{
+                            "and": [{
+                                "field": "platform.keyword",
+                                "value": "urn:li:dataPlatform:mysql"
+                            }, {
+                                "field": "origin",
+                                "value": "PROD"
+                            }]
+                        }]
+                    }
+                }
+            }
         }
 
     async def measure_endpoint(self, session, method, endpoint, payload=None, params=None):
@@ -33,59 +125,75 @@ class AsyncLiteGMSLoadTestV2:
         except Exception as e:
             return None, str(e)
 
-    async def collect_metrics(self, duration=60):
-        """Collect system metrics over time"""
-        print(f"\nCollecting system metrics for {duration} seconds...")
+    async def run_endpoint_test(self, endpoint_name, config, concurrent_requests=50, duration=30):
+        """Run test for a specific endpoint"""
+        print(f"\nTesting {endpoint_name} endpoint: {config['endpoint']}")
         start_time = time.time()
-        metrics_data = []
+        request_count = 0
+        latencies = []
+        errors = []
 
-        while time.time() - start_time < duration:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{self.base_url}/health") as response:
-                        health_data = await response.json()
-                        # Extract and convert metrics to numeric values
-                        queue_stats = health_data.get('metrics', {}).get('queue_statistics', {})
-                        if isinstance(queue_stats, str):
-                            try:
-                                queue_size = float(queue_stats.split()[0])  # Extract numeric part
-                            except (ValueError, IndexError):
-                                queue_size = 0
+        async with aiohttp.ClientSession() as session:
+            while time.time() - start_time < duration:
+                batch_tasks = []
+                for _ in range(concurrent_requests):
+                    task = asyncio.create_task(self.measure_endpoint(
+                        session,
+                        config['method'],
+                        config['endpoint'],
+                        payload=config['payload'],
+                        params=config['params']
+                    ))
+                    batch_tasks.append(task)
+                    request_count += 1
+
+                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                for result in batch_results:
+                    if isinstance(result, tuple):
+                        duration, status = result
+                        if duration is not None:
+                            latencies.append(duration)
                         else:
-                            queue_size = queue_stats.get('current_size', 0)
+                            errors.append(status)
+                    else:
+                        errors.append(str(result))
 
-                        # Get database latency and convert to float if it's a string
-                        db_latency = health_data.get('database', {}).get('metrics', {}).get('avg_operation_time', 0)
-                        if isinstance(db_latency, str):
-                            try:
-                                # Convert ms to seconds if necessary
-                                if 'ms' in db_latency:
-                                    db_latency = float(db_latency.replace('ms', '')) / 1000
-                                else:
-                                    db_latency = float(db_latency.replace('s', ''))
-                            except (ValueError, AttributeError):
-                                db_latency = 0
+                await asyncio.sleep(0.1)  # Rate limiting
 
-                        # Get worker pool active count
-                        worker_active = health_data.get('worker_pool', {}).get('active', 0)
-                        if isinstance(worker_active, str):
-                            try:
-                                worker_active = int(worker_active)
-                            except ValueError:
-                                worker_active = 0
+        test_duration = time.time() - start_time
+        successful_requests = len(latencies)
 
-                        metrics_data.append({
-                            'timestamp': time.time(),
-                            'queue_size': float(queue_size),
-                            'db_latency': float(db_latency),
-                            'worker_active': int(worker_active),
-                        })
-            except Exception as e:
-                print(f"Error collecting metrics: {e}")
-
-            await asyncio.sleep(1)
-
-        return metrics_data
+        if latencies:  # Ensure we have valid latencies before calculating statistics
+            return {
+                "endpoint": config['endpoint'],
+                "method": config['method'],
+                "performance_metrics": {
+                    "total_requests": request_count,
+                    "successful_requests": successful_requests,
+                    "failed_requests": len(errors),
+                    "error_rate": f"{(len(errors) / request_count * 100):.2f}%",
+                    "throughput": self.format_requests_per_second(successful_requests / test_duration),
+                    "latency": {
+                        "min": self.format_duration(min(latencies)),
+                        "max": self.format_duration(max(latencies)),
+                        "avg": self.format_duration(statistics.mean(latencies)),
+                        "p50": self.format_duration(statistics.median(latencies)),
+                        "p95": self.format_duration(sorted(latencies)[int(len(latencies) * 0.95)])
+                    }
+                }
+            }
+        else:
+            return {
+                "endpoint": config['endpoint'],
+                "method": config['method'],
+                "performance_metrics": {
+                    "total_requests": request_count,
+                    "successful_requests": 0,
+                    "failed_requests": len(errors),
+                    "error_rate": "100.00%",
+                    "errors": errors[:5]  # Include first 5 errors for debugging
+                }
+            }
 
     def format_duration(self, seconds):
         """Convert seconds to appropriate time unit"""
@@ -115,148 +223,43 @@ class AsyncLiteGMSLoadTestV2:
         else:
             return f"{rps/1000:.1f}k req/s"
 
-    async def run_load_test(self, concurrent_users=50, duration=60):
-        """Run a sustained load test with metrics collection"""
-        print(f"Starting load test with {concurrent_users} concurrent users for {duration} seconds...")
-
-        # Start metrics collection
-        metrics_task = asyncio.create_task(self.collect_metrics(duration))
-
-        # Run load test
-        start_time = time.time()
-        tasks = []
-        request_count = 0
-        latencies = []
-
-        async with aiohttp.ClientSession() as session:
-            while time.time() - start_time < duration:
-                # Generate batch of requests
-                batch_tasks = []
-                for _ in range(concurrent_users):
-                    task = asyncio.create_task(self.measure_endpoint(
-                        session, "POST", "/entities",
-                        payload=self.generate_test_payload(),
-                        params={"action": "ingest"}
-                    ))
-                    batch_tasks.append(task)
-                    request_count += 1
-
-                # Wait for batch completion
-                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-                latencies.extend([r[0] for r in batch_results if r[0] is not None])
-
-                await asyncio.sleep(1)  # Rate limiting
-
-        # Collect metrics
-        metrics_data = await metrics_task
-
-        # Process results
-        test_duration = time.time() - start_time
-        successful_requests = len([l for l in latencies if l is not None])
-
-        return {
-            "test_configuration": {
-                "concurrent_users": concurrent_users,
-                "duration": self.format_duration(test_duration),
-                "total_requests": request_count,
-                "successful_requests": successful_requests
-            },
-            "performance_metrics": {
-                "throughput": self.format_requests_per_second(successful_requests / test_duration),
-                "latency": {
-                    "min": self.format_duration(min(latencies)),
-                    "max": self.format_duration(max(latencies)),
-                    "avg": self.format_duration(statistics.mean(latencies)),
-                    "p50": self.format_duration(statistics.median(latencies)),
-                    "p95": self.format_duration(sorted(latencies)[int(len(latencies) * 0.95)])
-                }
-            },
-            "system_metrics": {
-                "queue_size": {
-                    "current": f"{metrics_data[-1]['queue_size']:.2f}",
-                    "avg": f"{statistics.mean([m['queue_size'] for m in metrics_data]):.2f}",
-                    "max": f"{max([m['queue_size'] for m in metrics_data]):.2f}"
-                },
-                "db_latency": {
-                    "avg": self.format_duration(statistics.mean([m['db_latency'] for m in metrics_data])),
-                    "max": self.format_duration(max([m['db_latency'] for m in metrics_data]))
-                },
-                "worker_pool": {
-                    "avg_active": f"{statistics.mean([m['worker_active'] for m in metrics_data]):.2f}",
-                    "max_active": f"{max([m['worker_active'] for m in metrics_data])}"
-                }
-            }
-        }
-
-    def generate_test_payload(self):
-        """Generate test payload for entities endpoint"""
-        return {
-            "entity": {
-                "value": {
-                    "dataset": {
-                        "urn": f"urn:li:dataset:(urn:li:dataPlatform:mysql,test_table_{int(time.time())},PROD)",
-                        "aspects": [
-                            {
-                                "SchemaMetadata": {
-                                    "fields": [
-                                        {"fieldPath": "id", "nativeDataType": "int"},
-                                        {"fieldPath": "name", "nativeDataType": "varchar"}
-                                    ]
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-        }
-
-    def plot_metrics(self, metrics_data: List[Dict[str, Any]], output_file: str):
-        """Generate performance visualization"""
-        df = pd.DataFrame(metrics_data)
-        df['timestamp'] = df['timestamp'] - df['timestamp'].min()
-
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
-
-        # Queue Size
-        ax1.plot(df['timestamp'], df['queue_size'])
-        ax1.set_title('Queue Size Over Time')
-        ax1.set_xlabel('Time (s)')
-        ax1.set_ylabel('Queue Size')
-        ax1.grid(True)
-
-        # DB Latency
-        ax2.plot(df['timestamp'], df['db_latency'] * 1000)  # Convert to ms
-        ax2.set_title('Database Operation Latency')
-        ax2.set_xlabel('Time (s)')
-        ax2.set_ylabel('Latency (ms)')
-        ax2.grid(True)
-
-        # Active Workers
-        ax3.plot(df['timestamp'], df['worker_active'])
-        ax3.set_title('Active Workers')
-        ax3.set_xlabel('Time (s)')
-        ax3.set_ylabel('Count')
-        ax3.grid(True)
-
-        plt.tight_layout()
-        plt.savefig(output_file)
-        plt.close()
-
-    async def run_full_test(self, concurrent_users=[10, 50, 100], duration=60):
+    async def run_full_test(self, concurrent_requests=50, duration=30):
         """Run complete performance test suite"""
-        print("Starting performance test suite...")
+        print(f"Starting performance test suite with {concurrent_requests} concurrent requests...")
+        print(f"Test duration per endpoint: {duration} seconds")
 
+        test_configs = self.generate_test_payloads()
         all_results = {}
 
-        for users in concurrent_users:
-            print(f"\nTesting with {users} concurrent users...")
-            results = await self.run_load_test(users, duration)
-            all_results[f"concurrent_users_{users}"] = results
+        # Test each endpoint
+        for endpoint_name, config in test_configs.items():
+            try:
+                results = await self.run_endpoint_test(
+                    endpoint_name,
+                    config,
+                    concurrent_requests,
+                    duration
+                )
+                all_results[endpoint_name] = results
+            except Exception as e:
+                print(f"Error testing {endpoint_name}: {e}")
+                all_results[endpoint_name] = {
+                    "endpoint": config['endpoint'],
+                    "method": config['method'],
+                    "error": str(e)
+                }
+
+        # Get final health check
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{self.base_url}/health") as response:
+                    all_results["system_health"] = await response.json()
+        except Exception as e:
+            print(f"Error getting final health check: {e}")
 
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_file = f"performance_test_results_{timestamp}.json"
-
         with open(results_file, "w") as f:
             json.dump(all_results, f, indent=2)
 
@@ -265,9 +268,41 @@ class AsyncLiteGMSLoadTestV2:
 
 async def main():
     tester = AsyncLiteGMSLoadTestV2()
-    results = await tester.run_full_test()
+
+    # 기본 설정
+    concurrent_requests = 50  # 동시 요청 수
+    test_duration = 30       # 각 엔드포인트당 테스트 시간(초)
+
+    # 전체 엔드포인트 테스트 실행
+    results = await tester.run_full_test(
+        concurrent_requests=concurrent_requests,
+        duration=test_duration
+    )
+
+    # 결과 출력
     print("\nTest Summary:")
-    print(json.dumps(results, indent=2))
+    for endpoint_name, data in results.items():
+        if endpoint_name != "system_health":
+            print(f"\n{endpoint_name.upper()} Endpoint Results:")
+            if "error" in data:
+                print(f"Error: {data['error']}")
+            else:
+                metrics = data["performance_metrics"]
+                print(f"Endpoint: {data['endpoint']}")
+                print(f"Method: {data['method']}")
+                print(f"Throughput: {metrics['throughput']}")
+                print(f"Success/Total: {metrics['successful_requests']}/{metrics['total_requests']}")
+                if "latency" in metrics:
+                    print(f"Avg Latency: {metrics['latency']['avg']}")
+                    print(f"95th Percentile: {metrics['latency']['p95']}")
+                print(f"Error Rate: {metrics['error_rate']}")
+
+    # 최종 시스템 상태 출력
+    if "system_health" in results:
+        print("\nFinal System Health:")
+        health = results["system_health"]
+        print(f"Queue Size: {health['metrics']['queue_statistics'].get('current_size', 'N/A')}")
+        print(f"Active Workers: {health['worker_pool']['active']}/{health['worker_pool']['size']}")
 
 if __name__ == "__main__":
     asyncio.run(main())
