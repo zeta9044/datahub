@@ -87,12 +87,28 @@ class DatabaseManager:
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
 
 
-    async def execute_query(self, query: str, params: tuple = None):
+    async def execute_fetchall(self, query: str, params: tuple = None):
         async with self._lock:
             start_time = time.time()
             try:
                 result = await asyncio.to_thread(
                     lambda: self.conn.execute(query, params).fetchall()
+                )
+                duration = time.time() - start_time
+                request_metrics['db_latencies'].append(duration)
+                if len(request_metrics['db_latencies']) > 1000:
+                    request_metrics['db_latencies'].pop(0)
+                return result
+            except Exception as e:
+                logging.error(f"Database query error: {e}")
+                raise
+
+    async def execute_fetchone(self, query: str, params: tuple = None):
+        async with self._lock:
+            start_time = time.time()
+            try:
+                result = await asyncio.to_thread(
+                    lambda: self.conn.execute(query, params).fetchone()
                 )
                 duration = time.time() - start_time
                 request_metrics['db_latencies'].append(duration)
@@ -424,7 +440,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
 
     try:
         db_manager = app.state.db_manager
-        result = await db_manager.execute_query('''
+        result = await db_manager.execute_fetchone('''
             SELECT metadata, systemMetadata
             FROM metadata_aspect_v2
             WHERE urn = ? AND aspect = ? AND version = ?
@@ -449,7 +465,7 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error in get_aspect: {e}")
+        logging.exception(f"Error in get_aspect: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.post("/usageStats")
@@ -541,7 +557,7 @@ async def graphql_endpoint(request: Request):
             logging.info(f"SQL parameters: {params}")
 
             db_manager = app.state.db_manager
-            result = await db_manager.execute_query(query, params)
+            result = await db_manager.execute_fetchall(query, params)
             logging.info(f"SQL query result: {result}")
 
             search_results = []
