@@ -446,11 +446,11 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             WHERE urn = ? AND aspect = ? AND version = ?
         ''', (urn, aspect, version))
 
-        if not result:
+        if result is None:
             message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
-            logging.debug(message)
+            logging.info(message)
             raise HTTPException(status_code=404, detail=message)
-
+        print(result)
         response = {
             "aspect": {
                 aspect: json.loads(result[0])
@@ -465,7 +465,6 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
     except HTTPException:
         raise
     except Exception as e:
-        logging.exception(f"Error in get_aspect: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.post("/usageStats")
@@ -692,7 +691,7 @@ async def health_check():
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
 @click.option('--db-file', default='async_lite_gms.db', help='Path to DuckDB database file')
-@click.option('--log-level', default='INFO',
+@click.option('--log-level', default='ERROR',
               type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
               help='Logging level')
 @click.option('--port', default=8000, type=int, help='Port to run the server on')
@@ -707,25 +706,48 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     CACHE_TTL = cache_ttl
 
     # Logging setup
-    logging.basicConfig(
-        level=getattr(logging, log_level),
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
-    # Disable uvicorn access logs
-    logging.getLogger("uvicorn.access").handlers = []
-
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s - %(levelname)s - %(message)s"
+            }
+        },
+        "handlers": {
+            "file": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": log_file,
+                "maxBytes": 10 * 1024 * 1024,
+                "backupCount": 5,
+                "formatter": "default",
+            },
+            "console": {
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+                "formatter": "default",
+            }
+        },
+        "root": {
+            "level": log_level,
+            "handlers": ["console", "file"]
+        }
+    }
     # Store configuration in app state
     app.state.db_file = db_file
 
     # Start the FastAPI application
     import uvicorn
     logging.info(f"Starting async_lite_gms server on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=False, log_level=log_level.lower())
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        reload=False,
+        log_level=log_level.lower(),
+        log_config=log_config,  # 커스텀 로그 설정 적용
+        access_log=False  # access 로그 비활성화 (선택사항)
+    )
 
 if __name__ == "__main__":
     main()
