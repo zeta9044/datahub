@@ -34,19 +34,50 @@ class AsyncLiteGMSLoadTest:
             results = await asyncio.gather(*tasks)
             return [r for r in results if r[0] is not None]  # Filter out failed requests
 
+    def format_duration(self, seconds):
+        """Convert seconds to appropriate time unit"""
+        if seconds < 0.001:  # < 1ms
+            return f"{seconds*1000000:.2f}μs"
+        elif seconds < 1:    # < 1s
+            return f"{seconds*1000:.2f}ms"
+        elif seconds < 60:   # < 1m
+            return f"{seconds:.2f}s"
+        elif seconds < 3600: # < 1h
+            minutes = seconds // 60
+            remaining_seconds = seconds % 60
+            return f"{int(minutes)}m {remaining_seconds:.2f}s"
+        else:
+            hours = seconds // 3600
+            remaining = seconds % 3600
+            minutes = remaining // 60
+            seconds = remaining % 60
+            return f"{int(hours)}h {int(minutes)}m {seconds:.2f}s"
+
+    def format_requests_per_second(self, rps):
+        """Format requests per second"""
+        if rps < 1:
+            return f"{rps:.2f} req/s"
+        elif rps < 1000:
+            return f"{int(rps)} req/s"
+        else:
+            return f"{rps/1000:.1f}k req/s"
+
     def calculate_statistics(self, durations):
         """Calculate performance statistics"""
         if not durations:
             return {}
-        return {
-            "min": min(durations),
-            "max": max(durations),
-            "mean": statistics.mean(durations),
-            "median": statistics.median(durations),
-            "p95": sorted(durations)[int(len(durations) * 0.95)],
-            "total_requests": len(durations),
-            "requests_per_second": len(durations) / sum(durations)
+
+        stats = {
+            "min_latency": self.format_duration(min(durations)),
+            "max_latency": self.format_duration(max(durations)),
+            "avg_latency": self.format_duration(statistics.mean(durations)),
+            "median_latency": self.format_duration(statistics.median(durations)),
+            "p95_latency": self.format_duration(sorted(durations)[int(len(durations) * 0.95)]),
+            "total_requests": f"{len(durations):,}",
+            "throughput": self.format_requests_per_second(len(durations) / sum(durations))
         }
+
+        return stats
 
     async def test_config_endpoint(self, concurrent_requests=100):
         """Test GET /config endpoint"""
@@ -131,9 +162,9 @@ class AsyncLiteGMSLoadTest:
 
         processing_time = time.time() - start_time
         self.results["queue_processing"] = {
-            "total_requests": total_requests,
-            "total_time": processing_time,
-            "requests_per_second": total_requests / processing_time
+            "total_requests": f"{total_requests:,}",
+            "total_time": self.format_duration(processing_time),
+            "throughput": self.format_requests_per_second(total_requests / processing_time)
         }
 
     async def run_full_test(self):
