@@ -55,6 +55,17 @@ class DatabaseManager:
         self.db_file = db_file
         self.conn = None
         self._lock = asyncio.Lock()
+        
+    @contextmanager
+    def _transaction(self):
+        """Context manager for database transactions"""
+        try:
+            self.conn.begin()
+            yield
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise e
 
     async def connect(self):
         if not self.conn:
