@@ -24,8 +24,9 @@ zeta_lab_path = next((path for path in possible_paths if os.path.exists(path)), 
 
 if zeta_lab_path is None:
     raise FileNotFoundError("zeta_lab 디렉토리를 찾을 수 없습니다.")
-
+print('zeta_lab_path:',zeta_lab_path)
 datahub_path = os.path.join(os.path.dirname(zeta_lab_path), 'datahub')
+print('datahub_path:',datahub_path)
 
 # 메인 스크립트 경로
 main_script = os.path.join(zeta_lab_path, 'async_lite_gms.py')
@@ -56,6 +57,16 @@ a = Analysis([main_script],
              win_no_prefer_redirects=False,
              win_private_assemblies=False,
              noarchive=False)
+
+# 필요한 시스템 라이브러리 추가
+import sysconfig
+lib_dir = sysconfig.get_config_var('LIBDIR')
+print("lib_dir:"+lib_dir)
+if lib_dir:
+    for lib in ['libm.so.6', 'libc.so.6', 'libpthread.so.0']:
+        lib_path = os.path.join(lib_dir, lib)
+        if os.path.exists(lib_path):
+            a.binaries.append((lib, lib_path, 'BINARY'))
 
 # 압축 없이 PYZ 생성
 pyz = PYZ(a.pure, a.zipped_data, compress=False)
