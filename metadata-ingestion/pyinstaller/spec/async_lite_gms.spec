@@ -42,13 +42,6 @@ a = Analysis([main_script],
                  (datahub_path, 'datahub')
              ],
              hiddenimports=[
-                 'uvicorn',
-                 'fastapi',
-                 'starlette',
-                 'pydantic',
-                 'asyncio',
-                 'uvloop',
-                 'httptools',
              ],
              hookspath=[],
              hooksconfig={},
