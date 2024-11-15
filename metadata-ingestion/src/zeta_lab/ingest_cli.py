@@ -201,6 +201,9 @@ def start(ctx):
     base_path = get_base_path()
     exec_path = find_executable(base_path)
 
+    logging.info(f"base_path is {base_path}")
+    logging.info(f"exec_path is {exec_path}")
+
     if not exec_path:
         click.echo("Error: async_lite_gms executable or script not found. Please ensure it's in the same directory, "
                    "set the ASYNC_LITE_GMS_PATH environment variable, or use --add-data with PyInstaller.")
