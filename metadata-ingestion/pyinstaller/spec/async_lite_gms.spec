@@ -71,6 +71,28 @@ a = Analysis([main_script],
 
                # Local
                'utilities.tool'
+
+               # 기존 imports에 추가
+               'importlib_resources.trees',
+               'pkg_resources._vendor.jaraco.functools',
+               'pkg_resources._vendor.jaraco.context',
+               'pkg_resources._vendor.jaraco.text',
+               'cachetools.ttl',
+               'typeguard._config',
+               'pysqlite2',
+               'MySQLdb',
+               'mx.DateTime',
+
+               # Cryptography 관련
+               'cryptography',
+               'cryptography.hazmat.backends.openssl',
+
+               # PyInstaller runtime hooks
+               'inspect',
+               'pkgutil',
+               'traitlets',
+               'multiprocessing',
+               'setuptools'
              ],
              hookspath=[],
              hooksconfig={},
