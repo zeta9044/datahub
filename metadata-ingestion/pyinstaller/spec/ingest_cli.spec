@@ -40,7 +40,7 @@ a = Analysis([main_script],
              datas=[
                  (zeta_lab_path, 'zeta_lab'),
                  (datahub_path, 'datahub'),
-                 ('venv/lib/python3.10/site-packages/setuptools/_vendor/jaraco', 'setuptools/_vendor/jaraco'),
+                  (os.path.join(base_path, 'venv/lib/python3.10/site-packages/setuptools/_vendor/jaraco'), 'setuptools/_vendor/jaraco'),
              ],
              hiddenimports=[
                # 기본 Python 모듈

@@ -40,7 +40,6 @@ a = Analysis([main_script],
              datas=[
                  (zeta_lab_path, 'zeta_lab'),
                  (datahub_path, 'datahub'),
-                 ('venv/lib/python3.10/site-packages/setuptools/_vendor/jaraco', 'setuptools/_vendor/jaraco'),
              ],
              hiddenimports=[
                # Standard library
@@ -61,7 +60,6 @@ a = Analysis([main_script],
                'click',
                'duckdb',
                'cachetools',
-               'cachetools.ttl',
                'fastapi',
                'fastapi.responses',
                'fastapi.applications',
@@ -69,36 +67,31 @@ a = Analysis([main_script],
                'fastapi.exceptions',
                'fastapi.requests',
                'fastapi.params',
+               'importlib_resources',
+               'pkg_resources',
 
                # Local
-               'utilities.tool'
-
-               # 기존 imports에 추가
-               'importlib_resources.trees',
-               'pkg_resources._vendor.jaraco.functools',
-               'pkg_resources._vendor.jaraco.context',
-               'pkg_resources._vendor.jaraco.text',
-               'cachetools.ttl',
-               'typeguard._config',
-               'pysqlite2',
-               'MySQLdb',
-               'mx.DateTime',
+               'zeta_lab.utilities.tool',
 
                # Cryptography 관련
                'cryptography',
                'cryptography.hazmat.backends.openssl',
-
-               # PyInstaller runtime hooks
-               'inspect',
-               'pkgutil',
-               'traitlets',
-               'multiprocessing',
-               'setuptools'
              ],
              hookspath=[],
              hooksconfig={},
              runtime_hooks=[],
-             excludes=[],
+             excludes=[
+                'importlib_resources.trees',
+                'pkg_resources._vendor.jaraco.functools',
+                'pkg_resources._vendor.jaraco.context',
+                'pkg_resources._vendor.jaraco.text',
+                'cachetools.ttl',
+                'typeguard._config',
+                'pysqlite2',
+                'MySQLdb',
+                'mx.DateTime',
+                'setuptools._vendor.typeguard',
+             ],
              win_no_prefer_redirects=False,
              win_private_assemblies=False,
              noarchive=False)

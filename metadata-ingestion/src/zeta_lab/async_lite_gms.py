@@ -290,20 +290,18 @@ app = FastAPI(lifespan=lifespan)
 @log_time
 async def get_config():
     """
-    Handles the GET request to retrieve the configuration settings.
-
-    :return: A dictionary containing version details, no-code status, stateful ingestion capability, and retention policy.
+    :return: A JSON response containing configuration details including version information, noCode capability, stateful ingestion capability, and retention status.
     """
-    return {
+    return JSONResponse(content={
         "versions": {
             "acryldata/datahub": {
-                "version": "0.13.3.3"
+                "version": "0.14.1.0"
             }
         },
         "noCode": "true",
         "statefulIngestionCapable": True,
         "retention": "true"
-    }
+    })
 
 
 @app.post("/entities")
