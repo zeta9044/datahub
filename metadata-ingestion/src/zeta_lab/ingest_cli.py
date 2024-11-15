@@ -210,8 +210,7 @@ def start(ctx):
     logging.info(f"exec_path is {exec_path}")
 
     if not exec_path:
-        click.echo("Error: async_lite_gms executable or script not found. Please ensure it's in the same directory, "
-                   "set the ASYNC_LITE_GMS_PATH environment variable, or use --add-data with PyInstaller.")
+        click.echo("Error: async_lite_gms executable or script not found.")
         return
 
     cmd = [
@@ -220,8 +219,7 @@ def start(ctx):
         "--db-file", ctx.obj['config']['db_file'],
         "--log-level", ctx.obj['config']['log_level'],
         "--port", str(ctx.obj['config']['port']),
-        # add parameters
-        "--workers", str(ctx.obj['config']['workers']),  # 기본값 사용
+        "--workers", str(ctx.obj['config']['workers']),
         "--batch-size", str(ctx.obj['config']['batch_size']),
         "--cache-ttl", str(ctx.obj['config']['cache_ttl'])
     ]
@@ -237,21 +235,41 @@ def start(ctx):
                 cmd.insert(0, sys.executable)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        for i in range(1,6):
-            logging.info(f"Server is starting...{i} s.")
+        # 서버 시작 대기 및 상태 체크
+        max_retries = 30  # 최대 30초 대기
+        server_ready = False
+
+        for i in range(max_retries):
+            logging.info(f"Server is starting... {i+1} s")
             time.sleep(1)
 
-        if process.poll() is None and get_server_pid() is not None:
-            click.echo("Server started successfully.")
-            logging.info("Server started successfully.")
+            # 프로세스 상태 확인
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                click.echo(f"Server failed to start. Error: {stderr.decode()}")
+                logging.error(f"Server failed to start. Error: {stderr.decode()}")
+                return
+
+            # 서버 헬스 체크
+            try:
+                import requests
+                response = requests.get(f"http://localhost:{ctx.obj['config']['port']}/health")
+                if response.status_code == 200:
+                    server_ready = True
+                    break
+            except requests.RequestException:
+                continue
+
+        if server_ready:
+            click.echo("Server started successfully and is ready to accept requests.")
+            logging.info("Server started successfully and is ready to accept requests.")
         else:
-            stdout, stderr = process.communicate()
-            click.echo(f"Server failed to start. Error: {stderr.decode()}")
-            logging.error(f"Server failed to start. Error: {stderr.decode()}")
+            click.echo("Server started but failed to respond to health check.")
+            logging.error("Server started but failed to respond to health check.")
+
     except Exception as e:
         click.echo(f"Error starting server: {str(e)}")
         logging.error(f"Error starting server: {str(e)}")
-
 
 @gms.command()
 @click.pass_context
