@@ -1,6 +1,5 @@
 import os
 import logging
-from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
 from zeta_lab.utilities.tool import extract_dsn_from_xml_file,get_server_pid
 from datahub.ingestion.run.pipeline import Pipeline
 

@@ -132,7 +132,7 @@ def load_config(ctx, config_file=None):
             config.update(loaded_config)
         logging.info(f"Loaded configuration from {config_file}")
     else:
-        logging.warning("Configuration file not found. Using default settings.")
+        logging.info("Configuration file not found. Using default settings.")
 
     ctx.obj['config_file'] = config_file
     ctx.obj['config'] = config
@@ -408,20 +408,22 @@ def reset(ctx):
 def ingest(gms):
     """Ingest metadata from qt_meta_populator."""
     try:
+        # 서버 상태 확인
+        import requests
+        try:
+            response = requests.get(f"{gms}/health")
+            if response.status_code != 200:
+                click.echo(f"Server is not healthy. Status code: {response.status_code}")
+                return
+        except requests.RequestException as e:
+            click.echo(f"Failed to connect to server: {str(e)}")
+            return
+
         ingest_metadata.ingest_metadata(gms_server_url=gms)
         click.echo("Metadata ingestion completed successfully.")
     except Exception as e:
         click.echo(f"Error during metadata ingestion: {str(e)}")
-
-@cli.command()
-@click.option('--prj_id', required=True, help='Project ID')
-def make(prj_id):
-    """Make sqlsrc.json from sqlsrc.dat."""
-    try:
-        make_sqlsrc.make_sqlsrc(prj_id=str(prj_id))
-        click.echo("SQL source conversion completed successfully.")
-    except Exception as e:
-        click.echo(f"Error during SQL source conversion: {str(e)}")
+        logging.error(f"Error during metadata ingestion: {str(e)}")
 
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
