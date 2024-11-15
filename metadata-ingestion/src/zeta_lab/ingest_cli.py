@@ -26,7 +26,10 @@ from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
 from zeta_lab.utilities.tool import get_server_pid
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
+)
 logger = logging.getLogger(__name__)
 
 def safe_register(registry, name, class_):

@@ -430,7 +430,6 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             },
             "systemMetadata": None
         }
-        aspect_cache[cache_key] = result
         return result
 
     try:
