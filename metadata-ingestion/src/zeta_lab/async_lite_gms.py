@@ -169,16 +169,17 @@ def log_time(func):
         return result
     return wrapper
 
+# process_queue 수정
 @log_time
 async def process_queue(db_manager: DatabaseManager):
-    while True:
+    while not app.state.should_exit:  # 종료 플래그 추가
         batch = []
         try:
-            while len(batch) < BATCH_SIZE:
+            while len(batch) < BATCH_SIZE and not app.state.should_exit:
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=BATCH_TIMEOUT)
                     batch.append(item)
-                    MetricsManager.track_queue_size(1)
+                    MetricsManager.track_queue_size(queue.qsize())  # 현재 큐 크기 추적
                 except asyncio.TimeoutError:
                     break
 
@@ -189,7 +190,6 @@ async def process_queue(db_manager: DatabaseManager):
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', batch)
 
-                # Invalidate relevant cache entries
                 for urn, aspect, _, _, _, _ in batch:
                     cache_key = f"{urn}:{aspect}"
                     aspect_cache.pop(cache_key, None)
@@ -267,22 +267,21 @@ def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.should_exit = False
     db_manager = DatabaseManager(app.state.db_file)
 
     try:
         await db_manager.connect()
         app.state.db_manager = db_manager
-
-        # Start background tasks
-        asyncio.create_task(process_queue(db_manager))
-
+        queue_task = asyncio.create_task(process_queue(db_manager))
         yield
     except Exception as e:
         logging.error(f"Error during startup: {e}")
         raise
     finally:
-        if db_manager.conn:
-            db_manager.conn.close()
+        app.state.should_exit = True
+        if hasattr(app.state, 'db_manager') and app.state.db_manager.conn:
+            app.state.db_manager.conn.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -292,7 +291,7 @@ async def get_config():  # @log_time 데코레이터 제거
         return JSONResponse(content={
             "versions": {
                 "acryldata/datahub": {
-                    "version": "0.13.3.3"
+                    "version": "0.14.1.0"
                 }
             },
             "noCode": "true",
