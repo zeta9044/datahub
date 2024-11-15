@@ -39,7 +39,8 @@ a = Analysis([main_script],
              binaries=[],
              datas=[
                  (zeta_lab_path, 'zeta_lab'),
-                 (datahub_path, 'datahub')
+                 (datahub_path, 'datahub'),
+                 ('venv/lib/python3.10/site-packages/setuptools/_vendor/jaraco', 'setuptools/_vendor/jaraco'),
              ],
              hiddenimports=[
                # Standard library
