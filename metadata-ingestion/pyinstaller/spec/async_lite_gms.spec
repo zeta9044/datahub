@@ -42,107 +42,35 @@ a = Analysis([main_script],
                  (datahub_path, 'datahub')
              ],
              hiddenimports=[
-                 # 기존 imports에 추가
-                 'psycopg2',
-                 'psycopg2._psycopg',
-                 'psycopg2.extensions',
-                 'psycopg2.extras',
-                 'psycopg2.pool',
-                 'psycopg2.sql',
+               # Standard library
+               'asyncio',
+               'json',
+               'logging',
+               're',
+               'sys',
+               'time',
+               'concurrent.futures',
+               'concurrent.futures.thread',
+               'contextlib',
+               'functools',
+               'typing',
+               'urllib.parse',
 
-                 # SQLAlchemy 관련
-                 'sqlalchemy',
-                 'sqlalchemy.orm',
-                 'sqlalchemy.ext.declarative',
-                 'sqlalchemy.dialects.postgresql',
+               # Third party
+               'click',
+               'duckdb',
+               'cachetools',
+               'cachetools.ttl',
+               'fastapi',
+               'fastapi.responses',
+               'fastapi.applications',
+               'fastapi.routing',
+               'fastapi.exceptions',
+               'fastapi.requests',
+               'fastapi.params',
 
-                # 기존 imports에 추가
-                 'threading',
-                 'threading.local',
-                 '_thread',
-                 'concurrent',
-                 'concurrent.futures',
-                 'concurrent.futures.thread',
-                 'concurrent.futures.process',
-                 'queue',
-                 '_queue',
-
-                 # async/await 관련
-                 'asyncio.base_events',
-                 'asyncio.proactor_events',
-                 'asyncio.windows_events',
-                 'asyncio.unix_events',
-                 'asyncio.selector_events',
-                 'asyncio.runners',
-
-                 # DataHub 관련
-                 'datahub.emitter.rest_emitter',
-                 'datahub.configuration.common',
-                 'datahub.metadata.schema_classes',
-                 'datahub.utilities.server_config_util',
-
-                 # HTTP/웹 서버 핵심 모듈
-                 'httptools.parser.parser',
-                 'httptools.parser.url_parser',
-                 'multidict._multidict',
-                 'websockets.speedups',
-                 'uvloop',
-
-                 # Uvicorn 관련 모듈
-                 'uvicorn.logging',
-                 'uvicorn.protocols.http.h11_impl',
-                 'uvicorn.protocols.http.httptools_impl',
-                 'uvicorn.protocols.websockets.websockets_impl',
-                 'uvicorn.protocols.websockets.wsproto_impl',
-                 'uvicorn.lifespan.on',
-                 'uvicorn.lifespan.off',
-
-                 # REST/HTTP 클라이언트 관련
-                 'aiohttp',
-                 'aiohttp.client',
-                 'aiohttp.client_proto',
-                 'aiohttp.client_reqrep',
-                 'aiohttp.http_parser',
-                 'aiohttp.http_writer',
-                 'aiohttp.helpers',
-                 'multidict._multidict',
-                 'yarl._quoting_c',
-                 'charset_normalizer',
-                 'frozenlist._frozenlist',
-
-                 # 비동기/동시성 관련
-                 'concurrent.futures',
-                 'concurrent.futures.thread',
-                 'concurrent.futures.process',
-                 '_asyncio',
-                 'asyncio.base_events',
-                 'asyncio.base_futures',
-                 'asyncio.base_tasks',
-                 'asyncio.events',
-                 'asyncio.futures',
-                 'asyncio.locks',
-                 'asyncio.protocols',
-                 'asyncio.queues',
-                 'asyncio.runners',
-                 'asyncio.streams',
-                 'asyncio.subprocess',
-                 'asyncio.tasks',
-                 'asyncio.threads',
-                 'asyncio.unix_events',
-
-                 # DataHub 관련
-                 'datahub.emitter.mcp',
-                 'datahub.emitter.mcp_builder',
-                 'datahub.emitter.rest_emitter',
-                 'datahub.utilities.partition_executor',
-
-                 # 기타 유틸리티
-                 'contextlib',
-                 'functools',
-                 'threading',
-                 'uuid',
-                 '_json',
-                 '_decimal'
+               # Local
+               'utilities.tool'
              ],
              hookspath=[],
              hooksconfig={},

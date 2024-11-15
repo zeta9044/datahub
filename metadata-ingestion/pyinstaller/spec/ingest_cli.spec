@@ -42,107 +42,67 @@ a = Analysis([main_script],
                  (datahub_path, 'datahub')
              ],
              hiddenimports=[
-                 # 기존 imports에 추가
-                 'psycopg2',
-                 'psycopg2._psycopg',
-                 'psycopg2.extensions',
-                 'psycopg2.extras',
-                 'psycopg2.pool',
-                 'psycopg2.sql',
+               # 기본 Python 모듈
+               'json',
+               'logging',
+               'os',
+               'signal',
+               'subprocess',
+               'sys',
+               'threading',
+               'time',
+               'typing',
+               'click',
 
-                 # SQLAlchemy 관련
-                 'sqlalchemy',
-                 'sqlalchemy.orm',
-                 'sqlalchemy.ext.declarative',
-                 'sqlalchemy.dialects.postgresql',
+               # DataHub Core
+               'datahub.ingestion.reporting.datahub_ingestion_run_summary_provider',
+               'datahub.ingestion.reporting.file_reporter',
+               'datahub.ingestion.reporting.reporting_provider_registry',
+               'datahub.ingestion.reporting',
 
-                # 기존 imports에 추가
-                 'threading',
-                 'threading.local',
-                 '_thread',
-                 'concurrent',
-                 'concurrent.futures',
-                 'concurrent.futures.thread',
-                 'concurrent.futures.process',
-                 'queue',
-                 '_queue',
+               # Sources
+               'datahub.ingestion.source.sql_queries',
+               'datahub.ingestion.source.source_registry',
+               'datahub.ingestion.source',
+               'zeta_lab.source.sqlsrc_to_json_converter',
+               'zeta_lab.source.convert_to_qtrack_db',
+               'zeta_lab.source.qtrack_meta_source',
+               'zeta_lab.source',
 
-                 # async/await 관련
-                 'asyncio.base_events',
-                 'asyncio.proactor_events',
-                 'asyncio.windows_events',
-                 'asyncio.unix_events',
-                 'asyncio.selector_events',
-                 'asyncio.runners',
+               # Sinks
+               'datahub.ingestion.sink.console',
+               'datahub.ingestion.sink.datahub_lite',
+               'datahub.ingestion.sink.datahub_rest',
+               'datahub.ingestion.sink.sink_registry',
+               'datahub.ingestion.sink',
 
-                 # DataHub 관련
-                 'datahub.emitter.rest_emitter',
-                 'datahub.configuration.common',
-                 'datahub.metadata.schema_classes',
-                 'datahub.utilities.server_config_util',
+               # Pipeline
+               'zeta_lab.pipeline',
+               'zeta_lab.pipeline.ingest_metadata',
+               'zeta_lab.pipeline.make_sqlsrc',
+               'zeta_lab.pipeline.extract_lineage',
+               'zeta_lab.pipeline.move_lineage',
 
-                 # HTTP/웹 서버 핵심 모듈
-                 'httptools.parser.parser',
-                 'httptools.parser.url_parser',
-                 'multidict._multidict',
-                 'websockets.speedups',
-                 'uvloop',
+               # Utilities
+               'zeta_lab.utilities.tool',
+               'zeta_lab.utilities',
 
-                 # Uvicorn 관련 모듈
-                 'uvicorn.logging',
-                 'uvicorn.protocols.http.h11_impl',
-                 'uvicorn.protocols.http.httptools_impl',
-                 'uvicorn.protocols.websockets.websockets_impl',
-                 'uvicorn.protocols.websockets.wsproto_impl',
-                 'uvicorn.lifespan.on',
-                 'uvicorn.lifespan.off',
+               # Click 관련
+               'click.core',
+               'click.decorators',
+               'click.parser',
+               'click.types',
+               'click.utils',
 
-                 # REST/HTTP 클라이언트 관련
-                 'aiohttp',
-                 'aiohttp.client',
-                 'aiohttp.client_proto',
-                 'aiohttp.client_reqrep',
-                 'aiohttp.http_parser',
-                 'aiohttp.http_writer',
-                 'aiohttp.helpers',
-                 'multidict._multidict',
-                 'yarl._quoting_c',
-                 'charset_normalizer',
-                 'frozenlist._frozenlist',
-
-                 # 비동기/동시성 관련
-                 'concurrent.futures',
-                 'concurrent.futures.thread',
-                 'concurrent.futures.process',
-                 '_asyncio',
-                 'asyncio.base_events',
-                 'asyncio.base_futures',
-                 'asyncio.base_tasks',
-                 'asyncio.events',
-                 'asyncio.futures',
-                 'asyncio.locks',
-                 'asyncio.protocols',
-                 'asyncio.queues',
-                 'asyncio.runners',
-                 'asyncio.streams',
-                 'asyncio.subprocess',
-                 'asyncio.tasks',
-                 'asyncio.threads',
-                 'asyncio.unix_events',
-
-                 # DataHub 관련
-                 'datahub.emitter.mcp',
-                 'datahub.emitter.mcp_builder',
-                 'datahub.emitter.rest_emitter',
-                 'datahub.utilities.partition_executor',
-
-                 # 기타 유틸리티
-                 'contextlib',
-                 'functools',
-                 'threading',
-                 'uuid',
-                 '_json',
-                 '_decimal'
+               # DataHub Types
+               'datahub.ingestion.api.common',
+               'datahub.ingestion.api.sink',
+               'datahub.ingestion.api.source',
+               'datahub.configuration.common',
+               'datahub.emitter.mcp',
+               'datahub.emitter.mcp_builder',
+               'datahub.metadata.schema_classes',
+               'datahub.utilities.server_config_util'
              ],
              hookspath=[],
              hooksconfig={},
