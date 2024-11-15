@@ -199,10 +199,6 @@ def find_executable(base_path):
 @click.pass_context
 def start(ctx):
     """Start the GMS server."""
-    import requests
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.retry import Retry
-
     pid = get_server_pid()
     if pid:
         click.echo(f"Server is already running (PID: {pid})")
@@ -239,55 +235,41 @@ def start(ctx):
                 cmd.insert(0, sys.executable)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        # 서버 시작 대기 및 상태 체크를 위한 세션 설정
-        session = requests.Session()
-        retries = Retry(
-            total=30,  # 총 재시도 횟수
-            backoff_factor=0.5,  # 재시도 간 대기 시간 증가 계수
-            status_forcelist=[500, 502, 503, 504]
-        )
-        session.mount('http://', HTTPAdapter(max_retries=retries))
-
-        # 서버 준비 확인
+        # 서버 시작 대기 및 상태 체크
+        max_retries = 30  # 최대 30초 대기
         server_ready = False
-        max_attempts = 30
-        base_url = f"http://localhost:{ctx.obj['config']['port']}"
 
-        for attempt in range(max_attempts):
+        for i in range(max_retries):
+            logging.info(f"Server is starting... {i+1} s")
+            time.sleep(1)
+
+            # 프로세스 상태 확인
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                click.echo(f"Server failed to start. Error: {stderr.decode()}")
+                logging.error(f"Server failed to start. Error: {stderr.decode()}")
+                return
+
+            # 서버 헬스 체크
             try:
-                # 프로세스 상태 확인
-                if process.poll() is not None:
-                    stdout, stderr = process.communicate()
-                    click.echo(f"Server failed to start. Error: {stderr.decode()}")
-                    return
-
-                # 먼저 /health 엔드포인트 체크
-                health_response = session.get(f"{base_url}/health", timeout=1)
-                if health_response.status_code == 200:
-                    # 그 다음 /config 엔드포인트 체크
-                    config_response = session.get(f"{base_url}/config", timeout=1)
-                    if config_response.status_code == 200:
-                        server_ready = True
-                        break
-
+                import requests
+                response = requests.get(f"http://localhost:{ctx.obj['config']['port']}/health")
+                if response.status_code == 200:
+                    server_ready = True
+                    break
             except requests.RequestException:
-                logging.info(f"Waiting for server to be ready... ({attempt + 1}/{max_attempts})")
-                time.sleep(1)
                 continue
 
         if server_ready:
             click.echo("Server started successfully and is ready to accept requests.")
             logging.info("Server started successfully and is ready to accept requests.")
         else:
-            click.echo("Server failed to become ready in time.")
-            process.terminate()
-            return
+            click.echo("Server started but failed to respond to health check.")
+            logging.error("Server started but failed to respond to health check.")
 
     except Exception as e:
         click.echo(f"Error starting server: {str(e)}")
         logging.error(f"Error starting server: {str(e)}")
-        if 'process' in locals():
-            process.terminate()
 
 @gms.command()
 @click.pass_context
