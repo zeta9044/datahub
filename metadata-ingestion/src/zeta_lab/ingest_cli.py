@@ -201,7 +201,6 @@ def start(ctx):
     base_path = get_base_path()
     exec_path = find_executable(base_path)
 
-    logging.info(f"base_path is {base_path}")
     logging.info(f"exec_path is {exec_path}")
 
     if not exec_path:
@@ -228,9 +227,11 @@ def start(ctx):
                 cmd.insert(0, sys.executable)
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        time.sleep(2)
+        for i in range(1,6):
+            logging.info(f"Server is starting...{i} s.")
+            time.sleep(1)
 
-        if process.poll() is None:
+        if process.poll() is None and get_server_pid() is not None:
             click.echo("Server started successfully.")
             logging.info("Server started successfully.")
         else:
