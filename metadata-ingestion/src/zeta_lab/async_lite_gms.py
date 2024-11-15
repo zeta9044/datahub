@@ -287,22 +287,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.get("/config")
-@log_time
-async def get_config():
-    """
-    :return: A JSON response containing configuration details including version information, noCode capability, stateful ingestion capability, and retention status.
-    """
-    return JSONResponse(content={
-        "versions": {
-            "acryldata/datahub": {
-                "version": "0.14.1.0"
-            }
-        },
-        "noCode": "true",
-        "statefulIngestionCapable": True,
-        "retention": "true"
-    })
-
+async def get_config():  # @log_time 데코레이터 제거
+    try:
+        return JSONResponse(content={
+            "versions": {
+                "acryldata/datahub": {
+                    "version": "0.13.3.3"
+                }
+            },
+            "noCode": "true",
+            "statefulIngestionCapable": True,
+            "retention": "true"
+        })
+    except Exception as e:
+        logging.error(f"Config endpoint error: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
 
 @app.post("/entities")
 @log_time
