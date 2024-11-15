@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 def create_duckdb_tables(conn: Any):
     """Create necessary tables in DuckDB if they don't exist."""
     create_ais0102(conn)
+    create_ais0103(conn)
     create_ais0112(conn)
     create_ais0113(conn)
     create_ais0080(conn)
@@ -38,6 +39,46 @@ def create_ais0102(conn: Any):
     """)
     logger.info("Table 'ais0102' created.")
 
+def create_ais0103(conn: Any):
+    logger.info("Creating table 'ais0103'.")
+    conn.execute("""
+        DROP TABLE IF EXISTS ais0103;
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ais0103 (
+            prj_id VARCHAR,
+            file_id INTEGER,
+            sql_id INTEGER,
+            table_id INTEGER,
+            col_id INTEGER,
+            obj_id INTEGER,
+            func_id INTEGER,
+            col_name VARCHAR,
+            col_use_type VARCHAR,
+            col_alias_yn VARCHAR,
+            col_name_src VARCHAR,
+            table_alias_name VARCHAR,
+            query_line_no INTEGER,
+            column_no INTEGER,
+            col_alias_name VARCHAR,
+            col_expr VARCHAR,
+            sql_state VARCHAR,
+            col_order_no INTEGER,
+            col_value_yn VARCHAR,
+            rel_flow_id INTEGER,
+            rel_table_id INTEGER,
+            col_scalar_yn VARCHAR,
+            fmt_col_type VARCHAR,
+            fmt_begin_pos INTEGER,
+            fmt_end_pos INTEGER,
+            fmt_type VARCHAR,
+            adjust_col_order_no INTEGER,
+            caps_col_name VARCHAR,
+            fl_tbl_uid INTEGER,
+            PRIMARY KEY (prj_id, file_id, sql_id, table_id, col_id)
+        )
+    """)
+    logger.info("Table 'ais0103' created.")
 
 def create_ais0112(conn: Any):
     logger.info("Creating table 'ais0112'.")

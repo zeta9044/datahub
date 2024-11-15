@@ -137,7 +137,8 @@ class ConvertQtrackSource(Source):
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
-        # populate ais0080,ais0081
+        # populate ais0103,ais0080,ais0081
+        self.populate_ais0103()
         self.populate_ais0080()
         self.populate_ais0081()
 
@@ -546,6 +547,38 @@ class ConvertQtrackSource(Source):
                 self.logger.error(f"Error processing batch at row {processed_rows}: {e}")
                 raise
 
+    def populate_ais0103(self):
+        self.logger.info("Populating ais0103 from ais0113")
+        try:
+
+            # SQL 쿼리
+            sql_query = """
+                SELECT DISTINCT
+                    prj_id,
+                    file_id,
+                    sql_id,
+                    table_id,
+                    col_id,
+                    caps_col_name 
+                FROM ais0113
+            """
+
+            # 쿼리 실행 및 데이터 가져오기
+            df = self.duckdb_conn.execute(sql_query).df()
+
+            # ais0103 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
+            columns_order = [
+                'prj_id', 'file_id', 'sql_id', 'table_id','col_id','caps_col_name'
+            ]
+
+            df_insert = df[columns_order]
+
+            # 결과를 ais0103 테이블에 batch로 삽입
+            self.populate_table_with_batch('ais0103', df_insert)
+
+        except duckdb.Error as e:
+            self.logger.error(f"Error populating ais0103: {e}")
+
     def populate_ais0080(self):
         self.logger.info("Populating ais0080 from ais0112")
         try:
@@ -733,6 +766,9 @@ class ConvertQtrackSource(Source):
 
             # Transfer ais0102
             await self.transfer_ais0102()
+
+            # Transfer ais0103
+            await self.transfer_table('ais0103')
 
             # Transfer ais0112
             await self.transfer_table('ais0112')
@@ -960,6 +996,7 @@ class ConvertQtrackSource(Source):
 
         delete_queries = [
             "DELETE FROM ais0102 WHERE prj_id = %s",
+            "DELETE FROM ais0103 WHERE prj_id = %s",
             "DELETE FROM ais0112 WHERE prj_id = %s",
             "DELETE FROM ais0113 WHERE prj_id = %s",
             "DELETE FROM ais0080 WHERE src_prj_id = %s",
