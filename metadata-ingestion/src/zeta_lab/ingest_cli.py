@@ -69,7 +69,10 @@ config: Dict[str, Any] = {
     "log_file": "async_lite_gms.log",
     "db_file": "async_lite_gms.db",
     "log_level": "INFO",
-    "port": 8000
+    'port': 8000,
+    'workers': 4,
+    'batch_size': 1000,
+    'cache_ttl': 300
 }
 
 
@@ -216,7 +219,11 @@ def start(ctx):
         "--log-file", ctx.obj['config']['log_file'],
         "--db-file", ctx.obj['config']['db_file'],
         "--log-level", ctx.obj['config']['log_level'],
-        "--port", str(ctx.obj['config']['port'])
+        "--port", str(ctx.obj['config']['port']),
+        # add parameters
+        "--workers", str(ctx.obj['config']['workers']),  # 기본값 사용
+        "--batch-size", str(ctx.obj['config']['batch_size']),
+        "--cache-ttl", str(ctx.obj['config']['cache_ttl'])
     ]
 
     try:
