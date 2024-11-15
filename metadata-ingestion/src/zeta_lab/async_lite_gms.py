@@ -10,6 +10,7 @@ from functools import wraps
 from typing import Dict, Any, List
 from urllib.parse import unquote
 
+import uvicorn
 import click
 import duckdb
 from cachetools import TTLCache
@@ -692,7 +693,8 @@ async def health_check():
 @click.option('--workers', default=WORKER_POOL_SIZE, type=int, help='Number of worker threads')
 @click.option('--batch-size', default=BATCH_SIZE, type=int, help='Database batch size')
 @click.option('--cache-ttl', default=CACHE_TTL, type=int, help='Cache TTL in seconds')
-def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
+@click.option('--foreground', is_flag=True, default=False, help='Run in foreground mode')
+def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl, foreground):
     global WORKER_POOL_SIZE, BATCH_SIZE, CACHE_TTL
 
     WORKER_POOL_SIZE = workers
@@ -702,7 +704,7 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     # Logging setup
     log_config = {
         "version": 1,
-        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
+        "disable_existing_loggers": False,
         "formatters": {
             "default": {
                 "format": "%(asctime)s - %(levelname)s - %(message)s"
@@ -727,21 +729,24 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
             "handlers": ["console", "file"]
         }
     }
-    # Store configuration in app state
+
     app.state.db_file = db_file
 
-    # Start the FastAPI application
-    import uvicorn
-    logging.info(f"Starting async_lite_gms server on port {port}...")
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-        log_level=log_level.lower(),
-        log_config=log_config,  # 커스텀 로그 설정 적용
-        access_log=False  # access 로그 비활성화 (선택사항)
-    )
+    if not foreground:
+        # Background mode
+        import daemon
+        with daemon.DaemonContext():
+            logging.info("Starting async_lite_gms server in background mode...")
+            click.echo("Server started in background mode")
+            uvicorn.run(app, host="0.0.0.0", port=port, reload=False,
+                        log_level=log_level.lower(), log_config=log_config,
+                        access_log=False)
+    else:
+        # Foreground mode
+        logging.info("Starting async_lite_gms server in foreground mode...")
+        uvicorn.run(app, host="0.0.0.0", port=port, reload=False,
+                    log_level=log_level.lower(), log_config=log_config,
+                    access_log=False)
 
 if __name__ == "__main__":
     main()
