@@ -1,6 +1,7 @@
 import asyncio
 import json
 import statistics
+import sys
 import time
 from datetime import datetime
 from urllib.parse import quote
@@ -266,42 +267,58 @@ class AsyncLiteGMSLoadTestV2:
         return all_results
 
 async def main():
-    tester = AsyncLiteGMSLoadTestV2()
+    try:
+        import argparse
+        parser = argparse.ArgumentParser(description='Performance Test for async_lite_gms')
+        parser.add_argument('--concurrent', type=int, default=50, help='Number of concurrent requests')
+        parser.add_argument('--duration', type=float, default=5.0, help='Test duration in minutes')
 
-    # 기본 설정
-    concurrent_requests = 50  # 동시 요청 수
-    test_duration = 30       # 각 엔드포인트당 테스트 시간(초)
+        args = parser.parse_args()
 
-    # 전체 엔드포인트 테스트 실행
-    results = await tester.run_full_test(
-        concurrent_requests=concurrent_requests,
-        duration=test_duration
-    )
+        tester = AsyncLiteGMSLoadTestV2()
+        duration_seconds = int(args.duration * 60)  # Convert minutes to seconds
 
-    # 결과 출력
-    print("\nTest Summary:")
-    for endpoint_name, data in results.items():
-        if endpoint_name != "system_health":
-            print(f"\n{endpoint_name.upper()} Endpoint Results:")
-            if "error" in data:
-                print(f"Error: {data['error']}")
-            else:
-                metrics = data["performance_metrics"]
-                print(f"Endpoint: {data['endpoint']}")
-                print(f"Method: {data['method']}")
-                print(f"Throughput: {metrics['throughput']}")
-                print(f"Success/Total: {metrics['successful_requests']}/{metrics['total_requests']}")
-                if "latency" in metrics:
-                    print(f"Avg Latency: {metrics['latency']['avg']}")
-                    print(f"95th Percentile: {metrics['latency']['p95']}")
-                print(f"Error Rate: {metrics['error_rate']}")
+        print(f"Starting performance test...")
+        print(f"Configuration:")
+        print(f"- Concurrent requests: {args.concurrent}")
+        print(f"- Test duration: {args.duration} minutes ({duration_seconds} seconds)")
 
-    # 최종 시스템 상태 출력
-    if "system_health" in results:
-        print("\nFinal System Health:")
-        health = results["system_health"]
-        print(f"Queue Size: {health['metrics']['queue_statistics'].get('current_size', 'N/A')}")
-        print(f"Active Workers: {health['worker_pool']['active']}/{health['worker_pool']['size']}")
+        results = await tester.run_full_test(
+            concurrent_requests=args.concurrent,
+            duration=duration_seconds
+        )
+
+        # 결과 출력
+        print("\nTest Summary:")
+        for endpoint_name, data in results.items():
+            if endpoint_name != "system_health":
+                print(f"\n{endpoint_name.upper()} Endpoint Results:")
+                if "error" in data:
+                    print(f"Error: {data['error']}")
+                else:
+                    metrics = data["performance_metrics"]
+                    print(f"Endpoint: {data['endpoint']}")
+                    print(f"Method: {data['method']}")
+                    print(f"Throughput: {metrics['throughput']}")
+                    print(f"Success/Total: {metrics['successful_requests']}/{metrics['total_requests']}")
+                    if "latency" in metrics:
+                        print(f"Avg Latency: {metrics['latency']['avg']}")
+                        print(f"95th Percentile: {metrics['latency']['p95']}")
+                    print(f"Error Rate: {metrics['error_rate']}")
+
+        # 최종 시스템 상태 출력
+        if "system_health" in results:
+            print("\nFinal System Health:")
+            health = results["system_health"]
+            print(f"Queue Size: {health['metrics']['queue_statistics'].get('current_size', 'N/A')}")
+            print(f"Active Workers: {health['worker_pool']['active']}/{health['worker_pool']['size']}")
+
+    except KeyboardInterrupt:
+        print("\nTest interrupted by user.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nTest failed with error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())

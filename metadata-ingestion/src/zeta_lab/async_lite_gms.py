@@ -701,7 +701,6 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl, for
     BATCH_SIZE = batch_size
     CACHE_TTL = cache_ttl
 
-    # Logging setup
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -733,17 +732,19 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl, for
     app.state.db_file = db_file
 
     if not foreground:
-        # Background mode
-        import daemon
-        with daemon.DaemonContext():
-            logging.info("Starting async_lite_gms server in background mode...")
-            click.echo("Server started in background mode")
-            uvicorn.run(app, host="0.0.0.0", port=port, reload=False,
-                        log_level=log_level.lower(), log_config=log_config,
-                        access_log=False)
+        import os
+        if os.fork() == 0:  # child process
+            os.setsid()
+            if os.fork() == 0:  # grandchild process
+                os.chdir('/')
+                os.umask(0)
+                print("Server started in background mode")
+                uvicorn.run(app, host="0.0.0.0", port=port, reload=False,
+                            log_level=log_level.lower(), log_config=log_config,
+                            access_log=False)
+            os._exit(0)
+        os._exit(0)
     else:
-        # Foreground mode
-        logging.info("Starting async_lite_gms server in foreground mode...")
         uvicorn.run(app, host="0.0.0.0", port=port, reload=False,
                     log_level=log_level.lower(), log_config=log_config,
                     access_log=False)
