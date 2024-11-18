@@ -509,18 +509,6 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             }
             return result
 
-        if not queue.empty():
-            queue_wait_start = time.time()
-            processing_event.clear()
-            try:
-                # 최대 5초만 대기
-                await asyncio.wait_for(processing_event.wait(), timeout=5.0)
-                queue_wait_time = time.time() - queue_wait_start
-                logging.info(f"Request {request_id}: Queue wait time: {queue_wait_time:.2f}s")
-            except asyncio.TimeoutError:
-                logging.warning(f"Request {request_id}: Queue processing timeout")
-                processing_event.set()  # 타임아웃 발생해도 계속 진행
-
         try:
             db_manager = app.state.db_manager
             db_start_time = time.time()
