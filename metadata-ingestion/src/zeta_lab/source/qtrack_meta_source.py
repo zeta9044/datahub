@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class QtrackMetaSourceConfig(ConfigModel):
     pg_dsn: str
-    duckdb_path: str = "lineage.db"
+    duckdb_path: str = "metadata.db"
     gms_server: str
 
 class QtrackMetaSource(Source):
