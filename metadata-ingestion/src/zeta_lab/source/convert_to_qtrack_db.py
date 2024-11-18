@@ -553,14 +553,36 @@ class ConvertQtrackSource(Source):
 
             # SQL 쿼리
             sql_query = """
-                SELECT DISTINCT
-                    prj_id,
-                    file_id,
-                    sql_id,
-                    table_id,
-                    col_id,
-                    caps_col_name 
-                FROM ais0113
+                select
+                    distinct
+                    a.prj_id,
+                    a.file_id,
+                    a.sql_id,
+                    a.table_id,
+                    a.col_id,
+                    a.caps_col_name
+                from 
+                (
+                    select 
+                        prj_id,
+                        file_id,
+                        sql_id,
+                        table_id,
+                        col_id,
+                        caps_col_name
+                    from
+                        ais0113
+                    union all
+                    select 
+                        call_prj_id,
+                        call_file_id,
+                        call_sql_id,
+                        call_table_id,
+                        call_col_id,
+                        call_caps_col_name
+                    from
+                        ais0113
+                ) A
             """
 
             # 쿼리 실행 및 데이터 가져오기
