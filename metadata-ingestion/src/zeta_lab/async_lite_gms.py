@@ -46,11 +46,6 @@ thread_pool = ThreadPoolExecutor(max_workers=WORKER_POOL_SIZE)
 aspect_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 metadata_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 
-# 전역 카운터 추가
-active_requests = 0
-request_lock = asyncio.Lock()
-
-
 class DatabaseManager:
     def __init__(self, db_file: str):
         self.db_file = db_file
@@ -89,6 +84,7 @@ class DatabaseManager:
             # Add indexes for common queries
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
+
 
     async def execute_fetchall(self, query: str, params: tuple = None):
         async with self._lock:
@@ -138,7 +134,6 @@ class DatabaseManager:
                 logging.error(f"Database batch operation error: {e}")
                 raise
 
-
 class MetricsManager:
     @staticmethod
     def track_request(endpoint: str):
@@ -160,7 +155,6 @@ class MetricsManager:
         if len(request_metrics['queue_sizes']) > 1000:
             request_metrics['queue_sizes'].pop(0)
 
-
 def log_time(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
@@ -173,8 +167,40 @@ def log_time(func):
         logging.info(f"{func.__name__} took {elapsed_time}")
         request_times[func.__name__] = request_times.get(func.__name__, []) + [elapsed_time]
         return result
-
     return wrapper
+
+# process_queue 수정
+@log_time
+async def process_queue(db_manager: DatabaseManager):
+    while not app.state.should_exit:  # 종료 플래그 추가
+        batch = []
+        try:
+            while len(batch) < BATCH_SIZE and not app.state.should_exit:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=BATCH_TIMEOUT)
+                    batch.append(item)
+                    MetricsManager.track_queue_size(queue.qsize())  # 현재 큐 크기 추적
+                except asyncio.TimeoutError:
+                    break
+
+            if batch:
+                await db_manager.execute_batch('''
+                    INSERT OR REPLACE INTO metadata_aspect_v2 
+                    (urn, aspect, version, metadata, systemMetadata, createdon)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', batch)
+
+                for urn, aspect, _, _, _, _ in batch:
+                    cache_key = f"{urn}:{aspect}"
+                    aspect_cache.pop(cache_key, None)
+                    metadata_cache.pop(urn, None)
+
+        except Exception as e:
+            logging.error(f"Error processing batch: {e}")
+
+        if queue.empty():
+            processing_event.set()
+        await asyncio.sleep(0.1)
 
 
 def decapitalize(name):
@@ -213,7 +239,7 @@ def process_special_aspect(aspect_value):
             return aspect_value['value']
     return aspect_value
 
-
+@log_time
 def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
     """
     :param aspect: The type of metadata aspect being processed. It can be one of the following: 'schemaMetadata', 'datasetProperties', or 'datasetKey'.
@@ -239,69 +265,6 @@ def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
         return {}
 
 
-@log_time
-async def process_queue(db_manager: DatabaseManager):
-    last_queue_size = 0
-
-    while not app.state.should_exit:
-        try:
-            current_queue_size = queue.qsize()
-
-            # 큐 크기 모니터링
-            if current_queue_size > last_queue_size:
-                logging.warning(f"Queue size increasing: {current_queue_size}")
-                if current_queue_size > 100:
-                    logging.error(f"Queue size too large: {current_queue_size}")
-
-            last_queue_size = current_queue_size
-
-            if queue.empty():
-                processing_event.set()
-                await asyncio.sleep(0.1)
-                continue
-
-            batch = []
-            batch_start_time = time.time()
-
-            # 배치 수집
-            while len(batch) < BATCH_SIZE and (time.time() - batch_start_time) < BATCH_TIMEOUT:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    batch.append(item)
-                    MetricsManager.track_queue_size(queue.qsize())
-                except asyncio.TimeoutError:
-                    break
-
-            if batch:
-                try:
-                    # 배치 처리
-                    await db_manager.execute_batch('''
-                        INSERT OR REPLACE INTO metadata_aspect_v2 
-                        (urn, aspect, version, metadata, systemMetadata, createdon)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', batch)
-
-                    # 캐시 업데이트
-                    for urn, aspect, _, _, _, _ in batch:
-                        cache_key = f"{urn}:{aspect}"
-                        aspect_cache.pop(cache_key, None)
-                        metadata_cache.pop(urn, None)
-
-                except Exception as e:
-                    logging.error(f"Batch processing error: {e}")
-                    # 에러가 발생해도 계속 진행
-
-            # 매 배치 처리 후 큐가 비었는지 확인
-            if queue.empty():
-                processing_event.set()
-
-        except Exception as e:
-            logging.error(f"Queue processing error: {e}")
-            # 중요: 에러 발생시에도 processing_event를 set
-            processing_event.set()
-            await asyncio.sleep(1)  # 에러 발생시 잠시 대기
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.should_exit = False
@@ -310,43 +273,17 @@ async def lifespan(app: FastAPI):
     try:
         await db_manager.connect()
         app.state.db_manager = db_manager
-
-        # queue_task를 app.state에 저장하여 관리
-        app.state.queue_task = asyncio.create_task(process_queue(db_manager))
-
+        queue_task = asyncio.create_task(process_queue(db_manager))
         yield
-
     except Exception as e:
         logging.error(f"Error during startup: {e}")
         raise
     finally:
-        # 종료 시 정리 작업
         app.state.should_exit = True
-
-        # queue_task 정리
-        if hasattr(app.state, 'queue_task'):
-            # task가 완료될 때까지 최대 10초 대기
-            try:
-                await asyncio.wait_for(app.state.queue_task, timeout=10.0)
-            except asyncio.TimeoutError:
-                logging.warning("Queue processing task did not complete within timeout")
-            except Exception as e:
-                logging.error(f"Error while waiting for queue task to complete: {e}")
-            finally:
-                if not app.state.queue_task.done():
-                    app.state.queue_task.cancel()
-                    try:
-                        await app.state.queue_task
-                    except asyncio.CancelledError:
-                        pass
-
-        # DB 연결 정리
         if hasattr(app.state, 'db_manager') and app.state.db_manager.conn:
             app.state.db_manager.conn.close()
 
-
 app = FastAPI(lifespan=lifespan)
-
 
 @app.get("/config")
 async def get_config():  # @log_time 데코레이터 제거
@@ -367,7 +304,6 @@ async def get_config():  # @log_time 데코레이터 제거
             content={"error": str(e)},
             status_code=500
         )
-
 
 @app.post("/entities")
 async def ingest_entity(request: Request, action: str = Query(...)):
@@ -473,98 +409,59 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
 @app.get("/aspects/{encoded_urn}")
 @log_time
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
-    global active_requests
+    if not queue.empty():
+        processing_event.clear()
+        await processing_event.wait()
 
-    async with request_lock:
-        active_requests += 1
-        current_requests = active_requests
+    urn = unquote(encoded_urn)
+    cache_key = f"{urn}:{aspect}"
+
+    # Check cache first
+    cached_result = aspect_cache.get(cache_key)
+    if cached_result:
+        return cached_result
+
+    # Special URN handling
+    if urn == "urn:li:telemetry:clientId" and aspect == "telemetryClientId":
+        result = {
+            "aspect": {
+                "telemetryClientId": {
+                    "clientId": "dummy-client-id",
+                    "lastUpdated": int(time.time() * 1000)
+                }
+            },
+            "systemMetadata": None
+        }
+        return result
 
     try:
-        if current_requests > 180:  # 임계값에 근접하면 경고
-            logging.warning(f"High number of concurrent requests: {current_requests}")
+        db_manager = app.state.db_manager
+        result = await db_manager.execute_fetchone('''
+            SELECT metadata, systemMetadata
+            FROM metadata_aspect_v2
+            WHERE urn = ? AND aspect = ? AND version = ?
+        ''', (urn, aspect, version))
 
-        request_id = id(asyncio.current_task())
-        start_time = time.time()
+        if result is None:
+            message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
+            logging.info(message)
+            raise HTTPException(status_code=404, detail=message)
+        print(result)
+        response = {
+            "aspect": {
+                aspect: json.loads(result[0])
+            },
+            "systemMetadata": json.loads(result[1]) if result[1] else None
+        }
 
-        logging.info(f"Request {request_id}: Starting get_aspect for {encoded_urn}")
+        # Cache the result
+        aspect_cache[cache_key] = response
+        return response
 
-        urn = unquote(encoded_urn)
-        cache_key = f"{urn}:{aspect}"
-
-        # Check cache first
-        cached_result = aspect_cache.get(cache_key)
-        if cached_result:
-            return cached_result
-
-        # Special URN handling
-        if urn == "urn:li:telemetry:clientId" and aspect == "telemetryClientId":
-            result = {
-                "aspect": {
-                    "telemetryClientId": {
-                        "clientId": "dummy-client-id",
-                        "lastUpdated": int(time.time() * 1000)
-                    }
-                },
-                "systemMetadata": None
-            }
-            return result
-
-        if not queue.empty():
-            queue_wait_start = time.time()
-            processing_event.clear()
-            try:
-                # 최대 5초만 대기
-                await asyncio.wait_for(processing_event.wait(), timeout=5.0)
-                queue_wait_time = time.time() - queue_wait_start
-                logging.info(f"Request {request_id}: Queue wait time: {queue_wait_time:.2f}s")
-            except asyncio.TimeoutError:
-                logging.warning(f"Request {request_id}: Queue processing timeout")
-                processing_event.set()  # 타임아웃 발생해도 계속 진행
-
-        try:
-            db_manager = app.state.db_manager
-            db_start_time = time.time()
-
-            async with db_manager._lock:
-                result = await db_manager.execute_fetchone('''
-                    SELECT metadata, systemMetadata
-                    FROM metadata_aspect_v2
-                    WHERE urn = ? AND aspect = ? AND version = ?
-                ''', (urn, aspect, version))
-
-                db_time = time.time() - db_start_time
-                logging.info(f"Request {request_id}: DB operation time: {db_time:.2f}s")
-
-            if result is None:
-                message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
-                logging.info(message)
-                raise HTTPException(status_code=404, detail=message)
-
-            response = {
-                "aspect": {
-                    aspect: json.loads(result[0])
-                },
-                "systemMetadata": json.loads(result[1]) if result[1] else None
-            }
-
-            # Cache the result
-            aspect_cache[cache_key] = response
-
-            total_time = time.time() - start_time
-            if total_time > 1.0:  # 1초 이상 걸린 요청 로깅
-                logging.warning(f"Request {request_id}: Long request time: {total_time:.2f}s")
-
-            return response
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logging.error(f"Request {request_id}: Error in get_aspect: {e}")
-            raise HTTPException(status_code=500, detail="Internal Server Error")
-    finally:
-        async with request_lock:
-            active_requests -= 1
-
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.post("/usageStats")
 @log_time
@@ -604,13 +501,14 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
 @app.post("/api/graphql")
 @log_time
 async def graphql_endpoint(request: Request):
+    """
+    :param request: The incoming HTTP request containing the GraphQL query and variables.
+    :return: A JSONResponse containing the data retrieved based on the GraphQL query,
+             or an error message if the query is unsupported or if an error occurs during execution.
+    """
     if not queue.empty():
         processing_event.clear()
-        try:
-            await asyncio.wait_for(processing_event.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            logging.warning("Queue processing timeout in graphql_endpoint")
-            processing_event.set()
+        await processing_event.wait()
 
     try:
         data = await request.json()
@@ -752,8 +650,7 @@ async def health_check():
         metrics = {
             'total_requests_by_endpoint': request_metrics['counts'],
             'average_latency_by_endpoint': avg_response_times,
-            'queue_statistics': queue_stats,
-            'active_requests': active_requests  # 현재 활성 요청 수 추가
+            'queue_statistics': queue_stats
         }
 
         # Calculate database metrics
@@ -790,7 +687,7 @@ async def health_check():
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
 @click.option('--db-file', default='async_lite_gms.db', help='Path to DuckDB database file')
-@click.option('--log-level', default='INFO',
+@click.option('--log-level', default='ERROR',
               type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
               help='Logging level')
 @click.option('--port', default=8000, type=int, help='Port to run the server on')
@@ -807,28 +704,24 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     # Logging setup
     log_config = {
         "version": 1,
-        "disable_existing_loggers": False,
+        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
         "formatters": {
             "default": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            },
-            "detailed": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]"
+                "format": "%(asctime)s - %(levelname)s - %(message)s"
             }
         },
         "handlers": {
             "file": {
                 "class": "logging.handlers.RotatingFileHandler",
                 "filename": log_file,
-                "maxBytes": 10 * 1024 * 1024,  # 10MB
+                "maxBytes": 10 * 1024 * 1024,
                 "backupCount": 5,
-                "formatter": "detailed",
-                "level": log_level
+                "formatter": "default",
             },
             "console": {
                 "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
                 "formatter": "default",
-                "level": log_level
             }
         },
         "root": {
@@ -836,7 +729,6 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
             "handlers": ["console", "file"]
         }
     }
-
     # Store configuration in app state
     app.state.db_file = db_file
 
@@ -849,8 +741,8 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
         port=port,
         reload=False,
         log_level=log_level.lower(),
-        log_config=log_config,
-        access_log=True  # access 로그 활성화
+        log_config=log_config,  # 커스텀 로그 설정 적용
+        access_log=False  # access 로그 비활성화 (선택사항)
     )
 
 if __name__ == "__main__":
