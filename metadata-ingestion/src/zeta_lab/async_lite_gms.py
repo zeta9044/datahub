@@ -273,7 +273,9 @@ async def lifespan(app: FastAPI):
     try:
         await db_manager.connect()
         app.state.db_manager = db_manager
-        queue_task = asyncio.create_task(process_queue(db_manager))
+
+        # background queue task
+        asyncio.create_task(process_queue(db_manager))
         yield
     except Exception as e:
         logging.error(f"Error during startup: {e}")
@@ -409,9 +411,6 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
 @app.get("/aspects/{encoded_urn}")
 @log_time
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
-    if not queue.empty():
-        processing_event.clear()
-        await processing_event.wait()
 
     urn = unquote(encoded_urn)
     cache_key = f"{urn}:{aspect}"
@@ -435,12 +434,15 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         return result
 
     try:
+        db_start_time = time.time()
         db_manager = app.state.db_manager
         result = await db_manager.execute_fetchone('''
             SELECT metadata, systemMetadata
             FROM metadata_aspect_v2
             WHERE urn = ? AND aspect = ? AND version = ?
         ''', (urn, aspect, version))
+        db_time = time.time() - db_start_time
+        logging.info(f"This request DB operation time: {db_time:.2f}s")
 
         if result is None:
             message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
