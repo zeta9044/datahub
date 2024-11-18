@@ -2,26 +2,21 @@ import asyncio
 import json
 import logging
 import re
-import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
 from typing import Dict, Any, List
 from urllib.parse import unquote
 
-import asyncpg
 import click
+import duckdb
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 
-from utilities.tool import format_time, extract_db_info
-from uvicorn.config import LOGGING_CONFIG
-
-logging.config.dictConfig(LOGGING_CONFIG)
-logger = logging.getLogger("uvicorn")
+from utilities.tool import format_time
 
 # Ensure Python 3.10+ is being used
 assert sys.version_info >= (3, 10), "Python 3.10+ is required."
@@ -41,144 +36,103 @@ request_metrics = {
     'queue_sizes': []  # Historical queue sizes
 }
 
-# Global thread pool
+# Global variables
+queue = asyncio.Queue()
+processing_event = asyncio.Event()
+request_times = {}
 thread_pool = ThreadPoolExecutor(max_workers=WORKER_POOL_SIZE)
 
 # Cache initialization
 aspect_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 metadata_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 
-
-# Queue and processing event
-class GlobalState:
-    def __init__(self):
-        self.queue = asyncio.Queue()
-        self.processing_event = asyncio.Event()
-        self.request_times = {}
-
-
-global_state = GlobalState()
-
-
-# Configuration management
-def get_db_config():
-    # config path
-    engine_home = os.getenv("LIAENG_HOME")
-    if not engine_home:
-        raise ValueError("Please define environment variable 'LIAENG_HOME' to your local Lia Engine home path.")
-    config_path = os.path.join(engine_home, 'config')
-    if not os.path.exists(config_path):
-        raise ValueError("Config path does not exist.")
-
-    # service.xml path
-    service_xml_path = os.path.join(config_path, 'service.xml')
-    if not os.path.exists(service_xml_path):
-        raise ValueError("service.xml file does not exist.")
-
-    # security.properties path
-    security_properties_path = os.path.join(config_path, 'security.properties')
-    if not os.path.exists(security_properties_path):
-        raise ValueError("security.properties file does not exist.")
-
-    try:
-        # DB 정보 추출
-        host_port, database, username, password = extract_db_info(
-            service_xml_path=service_xml_path,
-            security_properties_path=security_properties_path
-        )
-
-        # PostgreSQL connection string 구성
-        dsn = f"postgresql://{username}:{password}@{host_port}/{database}"
-
-        return {
-            "dsn": dsn
-        }
-
-    except Exception as e:
-        raise ValueError(f"Failed to get database configuration: {str(e)}")
-
-
 class DatabaseManager:
-    def __init__(self):
-        self.pool = None
+    def __init__(self, db_file: str):
+        self.db_file = db_file
+        self.conn = None
         self._lock = asyncio.Lock()
-        self.config = get_db_config()
+
+    @contextmanager
+    def _transaction(self):
+        """Context manager for database transactions"""
+        try:
+            self.conn.begin()
+            yield
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise e
 
     async def connect(self):
-        if not self.pool:
-            try:
-                self.pool = await asyncpg.create_pool(
-                    dsn=self.config["dsn"],
-                    min_size=5,
-                    max_size=20
-                )
-                await self._initialize_db()
-            except Exception as e:
-                logger.error(f"Database connection error: {e}")
-                raise
+        if not self.conn:
+            self.conn = duckdb.connect(self.db_file)
+            await self._initialize_db()
 
     async def _initialize_db(self):
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
+        with self._transaction():
+            self.conn.execute('''
                 CREATE TABLE IF NOT EXISTS metadata_aspect_v2 (
-                      urn                           varchar(500) not null,
-                      aspect                        varchar(200) not null,
-                      version                       bigint not null,
-                      metadata                      text not null,
-                      systemmetadata                text,
-                      createdon                     timestamp not null,
-                      constraint pk_metadata_aspect_v2 primary key (urn,aspect,version)
+                    urn VARCHAR,
+                    aspect VARCHAR,
+                    version BIGINT,
+                    metadata JSON,
+                    systemMetadata JSON,
+                    createdon BIGINT,
+                    PRIMARY KEY (urn, aspect, version)
                 )
             ''')
-            # Create indexes
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
-            await conn.execute('CREATE INDEX IF NOT EXISTS timeIndex  ON metadata_aspect_v2(createdon)')
+            # Add indexes for common queries
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
+
 
     async def execute_fetchall(self, query: str, params: tuple = None):
         async with self._lock:
             start_time = time.time()
             try:
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetch(query, *params if params else [])
+                result = await asyncio.to_thread(
+                    lambda: self.conn.execute(query, params).fetchall()
+                )
                 duration = time.time() - start_time
                 request_metrics['db_latencies'].append(duration)
-                MetricsManager.track_db_latency(duration)
+                if len(request_metrics['db_latencies']) > 1000:
+                    request_metrics['db_latencies'].pop(0)
                 return result
             except Exception as e:
-                logger.error(f"Database query error: {e}")
+                logging.error(f"Database query error: {e}")
                 raise
 
     async def execute_fetchone(self, query: str, params: tuple = None):
         async with self._lock:
             start_time = time.time()
             try:
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetchrow(query, *params if params else [])
+                result = await asyncio.to_thread(
+                    lambda: self.conn.execute(query, params).fetchone()
+                )
                 duration = time.time() - start_time
-                MetricsManager.track_db_latency(duration)
+                request_metrics['db_latencies'].append(duration)
+                if len(request_metrics['db_latencies']) > 1000:
+                    request_metrics['db_latencies'].pop(0)
                 return result
             except Exception as e:
-                logger.error(f"Database query error: {e}")
+                logging.error(f"Database query error: {e}")
                 raise
 
     async def execute_batch(self, query: str, params: List[tuple]):
         async with self._lock:
             start_time = time.time()
             try:
-                async with self.pool.acquire() as conn:
-                    async with conn.transaction():
-                        await conn.executemany(query, params)
+                result = await asyncio.to_thread(
+                    lambda: self.conn.executemany(query, params)
+                )
                 duration = time.time() - start_time
-                MetricsManager.track_db_latency(duration)
+                request_metrics['db_latencies'].append(duration)
+                if len(request_metrics['db_latencies']) > 1000:
+                    request_metrics['db_latencies'].pop(0)
+                return result
             except Exception as e:
-                logger.error(f"Database batch operation error: {e}")
+                logging.error(f"Database batch operation error: {e}")
                 raise
-
-    async def close(self):
-        if self.pool:
-            await self.pool.close()
-
 
 class MetricsManager:
     @staticmethod
@@ -201,13 +155,6 @@ class MetricsManager:
         if len(request_metrics['queue_sizes']) > 1000:
             request_metrics['queue_sizes'].pop(0)
 
-    @staticmethod
-    def track_db_latency(duration: float):
-        request_metrics['db_latencies'].append(duration)
-        if len(request_metrics['db_latencies']) > 1000:
-            request_metrics['db_latencies'].pop(0)
-
-
 def log_time(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
@@ -217,37 +164,30 @@ def log_time(func):
         end_time = time.time()
         elapsed_time = format_time(end_time - start_time)
         MetricsManager.track_latency(func.__name__, elapsed_time)
-        logger.info(f"{func.__name__} took {elapsed_time}")
-        global_state.request_times[func.__name__] = global_state.request_times.get(func.__name__, []) + [elapsed_time]
+        logging.info(f"{func.__name__} took {elapsed_time}")
+        request_times[func.__name__] = request_times.get(func.__name__, []) + [elapsed_time]
         return result
-
     return wrapper
 
-
-# Modified process_queue function for PostgreSQL
+# process_queue 수정
 @log_time
 async def process_queue(db_manager: DatabaseManager):
-    while not app.state.should_exit:
+    while not app.state.should_exit:  # 종료 플래그 추가
         batch = []
         try:
             while len(batch) < BATCH_SIZE and not app.state.should_exit:
                 try:
-                    item = await asyncio.wait_for(global_state.queue.get(), timeout=BATCH_TIMEOUT)
+                    item = await asyncio.wait_for(queue.get(), timeout=BATCH_TIMEOUT)
                     batch.append(item)
-                    MetricsManager.track_queue_size(global_state.queue.qsize())
+                    MetricsManager.track_queue_size(queue.qsize())  # 현재 큐 크기 추적
                 except asyncio.TimeoutError:
                     break
 
             if batch:
                 await db_manager.execute_batch('''
-                    INSERT INTO metadata_aspect_v2 
+                    INSERT OR REPLACE INTO metadata_aspect_v2 
                     (urn, aspect, version, metadata, systemMetadata, createdon)
-                    VALUES ($1, $2, $3, $4, $5,to_timestamp(($6::bigint/1000)::double precision))
-                    ON CONFLICT (urn, aspect, version) 
-                    DO UPDATE SET 
-                        metadata = EXCLUDED.metadata,
-                        systemMetadata = EXCLUDED.systemMetadata,
-                        createdon = EXCLUDED.createdon
+                    VALUES (?, ?, ?, ?, ?, ?)
                 ''', batch)
 
                 for urn, aspect, _, _, _, _ in batch:
@@ -256,10 +196,10 @@ async def process_queue(db_manager: DatabaseManager):
                     metadata_cache.pop(urn, None)
 
         except Exception as e:
-            logger.error(f"Error processing batch: {e}")
+            logging.error(f"Error processing batch: {e}")
 
-        if global_state.queue.empty():
-            global_state.processing_event.set()
+        if queue.empty():
+            processing_event.set()
         await asyncio.sleep(0.1)
 
 
@@ -299,7 +239,6 @@ def process_special_aspect(aspect_value):
             return aspect_value['value']
     return aspect_value
 
-
 @log_time
 def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
     """
@@ -322,60 +261,31 @@ def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
         else:
             return data
     except json.JSONDecodeError:
-        logger.error(f"Error decoding JSON for aspect {aspect}")
+        logging.error(f"Error decoding JSON for aspect {aspect}")
         return {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 애플리케이션 종료 플래그 설정
     app.state.should_exit = False
-
-    # 데이터베이스 매니저 초기화
-    db_manager = DatabaseManager()
+    db_manager = DatabaseManager(app.state.db_file)
 
     try:
-        # 데이터베이스 연결
         await db_manager.connect()
         app.state.db_manager = db_manager
 
-        # 큐 처리 작업 시작
-        queue_task = asyncio.create_task(process_queue(db_manager))
-        app.state.queue_task = queue_task
-
-        # 애플리케이션의 수명 주기 동안 유지
+        # background queue task
+        asyncio.create_task(process_queue(db_manager))
         yield
     except Exception as e:
-        # 오류 처리 및 로그
-        logger.error(f"Error during startup: {e}")
+        logging.error(f"Error during startup: {e}")
         raise
     finally:
-        # 종료 플래그 설정
         app.state.should_exit = True
+        if hasattr(app.state, 'db_manager') and app.state.db_manager.conn:
+            app.state.db_manager.conn.close()
 
-        # 큐 작업 취소 및 대기
-        app.state.queue_task.cancel()
-        try:
-            await app.state.queue_task
-        except asyncio.CancelledError:
-            logger.info("Queue processing task cancelled")
-
-        # 데이터베이스 연결 종료
-        if hasattr(app.state, 'db_manager'):
-            await app.state.db_manager.close()
-
-
-# FastAPI 애플리케이션 초기화 및 lifecycle 설정
 app = FastAPI(lifespan=lifespan)
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Server startup")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Server shutdown")
 
 @app.get("/config")
 async def get_config():  # @log_time 데코레이터 제거
@@ -391,12 +301,11 @@ async def get_config():  # @log_time 데코레이터 제거
             "retention": "true"
         })
     except Exception as e:
-        logger.error(f"Config endpoint error: {e}")
+        logging.error(f"Config endpoint error: {e}")
         return JSONResponse(
             content={"error": str(e)},
             status_code=500
         )
-
 
 @app.post("/entities")
 async def ingest_entity(request: Request, action: str = Query(...)):
@@ -425,7 +334,7 @@ async def ingest_entity(request: Request, action: str = Query(...)):
                     aspect_name = full_aspect_name.split('.')[-1]
                     aspect_name = decapitalize(aspect_name)
 
-                    await global_state.queue.put((
+                    await queue.put((
                         urn,
                         aspect_name,
                         0,  # Latest version
@@ -436,7 +345,7 @@ async def ingest_entity(request: Request, action: str = Query(...)):
 
             dataset_key = extract_dataset_key(urn)
             if dataset_key:
-                await global_state.queue.put((
+                await queue.put((
                     urn,
                     "datasetKey",
                     0,  # Latest version
@@ -446,11 +355,11 @@ async def ingest_entity(request: Request, action: str = Query(...)):
                 ))
 
         elapsed = time.time() - start_time
-        logger.info(f"ingest_entity took {elapsed:.2f}s")
+        logging.info(f"ingest_entity took {elapsed:.2f}s")
 
         return {"status": "queued"}
     except Exception as e:
-        logger.error(f"Error in ingest_entity: {e}")
+        logging.error(f"Error in ingest_entity: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -484,7 +393,7 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
 
             aspect_value = process_special_aspect(aspect_value)
 
-            await global_state.queue.put((
+            await queue.put((
                 urn,
                 aspect_name,
                 0,  # Latest version
@@ -495,13 +404,14 @@ async def ingest_aspect(request: Request, action: str = Query(...)):
 
         return {"status": "queued", "count": len(proposals)}
     except Exception as e:
-        logger.error(f"Error in ingest_aspect: {e}")
+        logging.error(f"Error in ingest_aspect: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/aspects/{encoded_urn}")
 @log_time
 async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = Query(0)):
+
     urn = unquote(encoded_urn)
     cache_key = f"{urn}:{aspect}"
 
@@ -529,14 +439,14 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         result = await db_manager.execute_fetchone('''
             SELECT metadata, systemMetadata
             FROM metadata_aspect_v2
-            WHERE urn = $1 AND aspect = $2 AND version = $3
+            WHERE urn = ? AND aspect = ? AND version = ?
         ''', (urn, aspect, version))
         db_time = time.time() - db_start_time
-        logger.info(f"This request DB operation time: {db_time:.2f}s")
+        logging.info(f"This request DB operation time: {db_time:.2f}s")
 
         if result is None:
             message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
-            logger.info(message)
+            logging.info(message)
             raise HTTPException(status_code=404, detail=message)
         print(result)
         response = {
@@ -554,7 +464,6 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
 
 @app.post("/usageStats")
 @log_time
@@ -576,7 +485,7 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
             if not urn:
                 raise HTTPException(status_code=400, detail="DatasetUrn is required")
 
-            await global_state.queue.put((
+            await queue.put((
                 urn,
                 "datasetUsageStatistics",
                 0,  # Latest version
@@ -587,7 +496,7 @@ async def ingest_usage_stats(request: Request, action: str = Query(...)):
 
         return {"status": "queued", "count": len(buckets)}
     except Exception as e:
-        logger.error(f"Error in ingest_usage_stats: {e}")
+        logging.error(f"Error in ingest_usage_stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -599,22 +508,23 @@ async def graphql_endpoint(request: Request):
     :return: A JSONResponse containing the data retrieved based on the GraphQL query,
              or an error message if the query is unsupported or if an error occurs during execution.
     """
+    if not queue.empty():
+        processing_event.clear()
+        await processing_event.wait()
 
     try:
         data = await request.json()
         query = data.get('query')
         variables = data.get('variables', {})
 
-        logger.info(f"Received GraphQL query: {query}")
-        logger.info(f"Variables: {variables}")
+        logging.info(f"Received GraphQL query: {query}")
+        logging.info(f"Variables: {variables}")
 
         if "scrollAcrossEntities" in query:
             or_filters = variables.get('orFilters', [])
 
             where_clauses = []
             params = []
-
-            param_index = 1  # 플레이스홀더 인덱스
 
             for or_filter in or_filters:
                 and_clauses = []
@@ -623,13 +533,11 @@ async def graphql_endpoint(request: Request):
                     value = and_filter.get('value') or and_filter.get('values', [])[0]
 
                     if field == 'platform.keyword':
-                        and_clauses.append(f"urn LIKE ${param_index}")
+                        and_clauses.append("urn LIKE ?")
                         params.append(f"urn:li:dataset:(urn:li:dataPlatform:{value.split(':')[-1]},%")
-                        param_index += 1
                     elif field == 'origin':
-                        and_clauses.append(f"urn LIKE ${param_index}")
+                        and_clauses.append("urn LIKE ?")
                         params.append(f"%,{value})")
-                        param_index += 1
 
                 if and_clauses:
                     where_clauses.append(f"({' AND '.join(and_clauses)})")
@@ -639,15 +547,15 @@ async def graphql_endpoint(request: Request):
             query = f"""
                 SELECT DISTINCT urn, aspect, metadata
                 FROM metadata_aspect_v2
-                WHERE ({final_where})
+                WHERE {final_where}
             """
 
-            logger.info(f"Executing SQL query: {query}")
-            logger.info(f"SQL parameters: {params}")
+            logging.info(f"Executing SQL query: {query}")
+            logging.info(f"SQL parameters: {params}")
 
             db_manager = app.state.db_manager
             result = await db_manager.execute_fetchall(query, params)
-            logger.info(f"SQL query result: {result}")
+            logging.info(f"SQL query result: {result}")
 
             search_results = []
             for row in result:
@@ -688,7 +596,7 @@ async def graphql_endpoint(request: Request):
                 }
             }
 
-            logger.info(f"Sending response: {json.dumps(response, indent=2)}")
+            logging.info(f"Sending response: {json.dumps(response, indent=2)}")
 
             return JSONResponse(content=response)
         else:
@@ -696,14 +604,15 @@ async def graphql_endpoint(request: Request):
             return JSONResponse(content={"errors": ["Unsupported query"]}, status_code=400)
 
     except Exception as e:
-        logger.error(f"Error occurred during GraphQL query execution: {str(e)}")
+        logging.error(f"Error occurred during GraphQL query execution: {str(e)}")
         return JSONResponse(content={"errors": [str(e)]}, status_code=500)
 
 
 @app.get("/health")
 async def health_check():
     try:
-        queue_size = global_state.queue.qsize()
+        queue_size = queue.qsize()
+        db_manager = app.state.db_manager
 
         # Calculate average response times
         avg_response_times = {}
@@ -768,7 +677,7 @@ async def health_check():
             }
         }
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logging.error(f"Health check failed: {e}")
         return JSONResponse(
             content={
                 "status": "unhealthy",
@@ -777,17 +686,17 @@ async def health_check():
             status_code=500
         )
 
-
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
-@click.option('--log-level', default='INFO',
+@click.option('--db-file', default='async_lite_gms.db', help='Path to DuckDB database file')
+@click.option('--log-level', default='ERROR',
               type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
               help='Logging level')
 @click.option('--port', default=8000, type=int, help='Port to run the server on')
 @click.option('--workers', default=WORKER_POOL_SIZE, type=int, help='Number of worker threads')
 @click.option('--batch-size', default=BATCH_SIZE, type=int, help='Database batch size')
 @click.option('--cache-ttl', default=CACHE_TTL, type=int, help='Cache TTL in seconds')
-def main(log_file, log_level, port, workers, batch_size, cache_ttl):
+def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     global WORKER_POOL_SIZE, BATCH_SIZE, CACHE_TTL
 
     WORKER_POOL_SIZE = workers
@@ -797,7 +706,7 @@ def main(log_file, log_level, port, workers, batch_size, cache_ttl):
     # Logging setup
     log_config = {
         "version": 1,
-        "disable_existing_loggers": False,
+        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
         "formatters": {
             "default": {
                 "format": "%(asctime)s - %(levelname)s - %(message)s"
@@ -822,20 +731,21 @@ def main(log_file, log_level, port, workers, batch_size, cache_ttl):
             "handlers": ["console", "file"]
         }
     }
+    # Store configuration in app state
+    app.state.db_file = db_file
 
     # Start the FastAPI application
     import uvicorn
-    logger.info(f"Starting async_lite_gms server on port {port}...")
+    logging.info(f"Starting async_lite_gms server on port {port}...")
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=port,
         reload=False,
         log_level=log_level.lower(),
-        log_config=log_config,
-        access_log=False
+        log_config=log_config,  # 커스텀 로그 설정 적용
+        access_log=False  # access 로그 비활성화 (선택사항)
     )
-
 
 if __name__ == "__main__":
     main()
