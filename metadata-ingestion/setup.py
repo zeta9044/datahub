@@ -54,6 +54,7 @@ framework_common = {
     "jsonschema",
     "ruamel.yaml",
     "pyinstaller==6.1.0",
+    "asyncpg"
 }
 
 pydantic_no_v2 = {
