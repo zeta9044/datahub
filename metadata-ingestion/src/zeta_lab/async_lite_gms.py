@@ -106,18 +106,19 @@ class DatabaseManager:
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS metadata_aspect_v2 (
-                    urn VARCHAR NOT NULL,
-                    aspect VARCHAR NOT NULL,
-                    version BIGINT NOT NULL,
-                    metadata JSONB,
-                    systemMetadata JSONB,
-                    createdon BIGINT,
-                    PRIMARY KEY (urn, aspect, version)
+                      urn                           varchar(500) not null,
+                      aspect                        varchar(200) not null,
+                      version                       bigint not null,
+                      metadata                      text not null,
+                      systemmetadata                text,
+                      createdon                     timestamp not null,
+                      constraint pk_metadata_aspect_v2 primary key (urn,aspect,version)
                 )
             ''')
             # Create indexes
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS timeIndex  ON metadata_aspect_v2(createdon)')
 
     async def execute_fetchall(self, query: str, params: tuple = None):
         async with self._lock:
@@ -203,25 +204,30 @@ def log_time(func):
         return result
     return wrapper
 
-# process_queue 수정
+# Modified process_queue function for PostgreSQL
 @log_time
 async def process_queue(db_manager: DatabaseManager):
-    while not app.state.should_exit:  # 종료 플래그 추가
+    while not app.state.should_exit:
         batch = []
         try:
             while len(batch) < BATCH_SIZE and not app.state.should_exit:
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=BATCH_TIMEOUT)
                     batch.append(item)
-                    MetricsManager.track_queue_size(queue.qsize())  # 현재 큐 크기 추적
+                    MetricsManager.track_queue_size(queue.qsize())
                 except asyncio.TimeoutError:
                     break
 
             if batch:
                 await db_manager.execute_batch('''
-                    INSERT OR REPLACE INTO metadata_aspect_v2 
+                    INSERT INTO metadata_aspect_v2 
                     (urn, aspect, version, metadata, systemMetadata, createdon)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES ($1, $2, $3, $4, $5,to_timestamp(($6::bigint/1000)::double precision))
+                    ON CONFLICT (urn, aspect, version) 
+                    DO UPDATE SET 
+                        metadata = EXCLUDED.metadata,
+                        systemMetadata = EXCLUDED.systemMetadata,
+                        createdon = EXCLUDED.createdon
                 ''', batch)
 
                 for urn, aspect, _, _, _, _ in batch:
