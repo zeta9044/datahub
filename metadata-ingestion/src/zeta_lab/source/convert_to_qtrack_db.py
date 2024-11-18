@@ -45,49 +45,11 @@ class ConvertQtrackSource(Source):
         self.next_table_id = 1
         self.next_column_id = 1
         self.column_order = {}  # 테이블별 컬럼 순서를 추적하기 위한 딕셔너리
+        self.properties_cache = {}  # 메모리 캐시
 
     @classmethod
     def create(cls, config_dict, ctx):
         return cls(config_dict, ctx)
-
-    def setup_logger(self, prj_id: str, logger_path: str):
-        # 현재 날짜를 가져옵니다
-        current_date = datetime.now().strftime("%Y-%m-%d")
-
-        # 로그 파일명을 생성합니다
-        log_filename = f"analyzer_{prj_id}.log_{current_date}"
-
-        # 전체 로그 파일 경로를 생성합니다
-        full_log_path = os.path.join(logger_path, log_filename)
-
-        # 로그 디렉토리가 존재하지 않으면 생성합니다
-        os.makedirs(logger_path, exist_ok=True)
-
-        # 로거를 설정합니다
-        self.logger = logging.getLogger("analyzer")
-        self.logger.setLevel(logging.INFO)
-
-        # 파일 핸들러를 생성합니다 (파일이 있으면 append, 없으면 생성)
-        file_handler = logging.FileHandler(full_log_path, mode='a')
-
-        # 커스텀 포매터를 생성합니다
-        class CustomFormatter(logging.Formatter):
-            def format(self, record):
-                level_map = {
-                    'INFO': 'info',
-                    'WARNING': 'warn',
-                    'ERROR': 'eror',
-                    'DEBUG': 'dbug'
-                }
-                record.levelname = level_map.get(record.levelname, record.levelname.lower())
-                return super().format(record)
-
-        formatter = CustomFormatter('[%(asctime)s] [%(levelname)s] %(message)s',
-                                    datefmt='%Y.%m.%d %H:%M:%S')
-        file_handler.setFormatter(formatter)
-
-        # 핸들러를 로거에 추가합니다
-        self.logger.addHandler(file_handler)
 
     def initialize_databases(self):
         self.logger.info("Initializing databases")
@@ -123,12 +85,60 @@ class ConvertQtrackSource(Source):
             self.logger.error(f"Error extracting column name from URN {column_urn}: {e}")
             return '*'  # Return default value in case of error
 
+    def prefetch_dataset_properties(self, lineage_data: List[Dict]) -> None:
+        """
+        lineage 처리 전에 필요한 모든 데이터셋의 프로퍼티를 미리 조회
+        """
+        # 모든 필요한 URN을 수집
+        needed_urns = set()
+        for row in lineage_data:
+            downstream_urn = row[0]  # row = (urn, metadata)
+            metadata = eval(row[1])
+
+            needed_urns.add(downstream_urn)
+            for upstream in metadata.get('upstreams', []):
+                needed_urns.add(upstream['dataset'])
+
+        # 아직 캐시되지 않은 URN만 필터링
+        urns_to_fetch = [urn for urn in needed_urns if urn not in self.properties_cache]
+
+        # 청크 단위로 조회
+        chunk_size = 50
+        for i in range(0, len(urns_to_fetch), chunk_size):
+            chunk = urns_to_fetch[i:i + chunk_size]
+            self.fetch_properties_chunk(chunk)
+
+    def fetch_properties_chunk(self, urns: List[str]) -> None:
+        """
+        여러 URN의 프로퍼티를 한 번에 조회
+        """
+        for urn in urns:
+            try:
+                url = f"{self.config['datahub_api']['server']}/aspects/{DatasetUrn.url_encode(urn)}?aspect=datasetProperties&version=0"
+                with requests.get(url, timeout=self.config['datahub_api']['timeout_sec']) as response:
+                    if response.status_code == 200:
+                        self.properties_cache[urn] = response.json()
+                    else:
+                        self.properties_cache[urn] = {}
+            except Exception as e:
+                self.logger.error(f"Error fetching properties for {urn}: {e}")
+                self.properties_cache[urn] = {}
+
+    def get_dataset_properties(self, dataset_urn: str) -> Dict:
+        """
+        캐시된 프로퍼티 반환
+        """
+        return self.properties_cache.get(dataset_urn, {})
+
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
         query = """
         SELECT urn, metadata FROM metadata_aspect_v2
         WHERE aspect_name = 'upstreamLineage' AND version = 0
         """
         results = self.duckdb_conn.execute(query).fetchall()
+
+        # 모든 필요한 프로퍼티를 미리 조회
+        self.prefetch_dataset_properties(results)
 
         for row in results:
             downstream_urn = row[0]
@@ -495,29 +505,6 @@ class ConvertQtrackSource(Source):
         except Exception as e:
             self.logger.error(f"Error creating ais0113 entry: {e}")
 
-    def get_dataset_properties(self, dataset_urn: str) -> Dict:
-        url = f"{self.config['datahub_api']['server']}/aspects/{DatasetUrn.url_encode(dataset_urn)}?aspect=datasetProperties&version=0"
-        try:
-            self.logger.info(f"Fetching dataset properties for {dataset_urn}")
-            with requests.get(url, timeout=self.config['datahub_api']['timeout_sec']) as response:
-                if response.status_code == 200:
-                    self.logger.info(f"Successfully fetched dataset properties for {dataset_urn}")
-                    return response.json()
-                else:
-                    self.logger.debug(
-                        f"Failed to get dataset properties for {dataset_urn}: HTTP {response.status_code}")
-                    if response.status_code == 404:
-                        self.logger.warning(f"Dataset not found: {dataset_urn}. Using empty properties.")
-                        return {}  # Return empty dict if dataset not found
-                    elif response.status_code == 500:
-                        self.logger.error(
-                            "Server error occurred. This might be due to the dataset not existing or other server-side issues.")
-                    return {}
-        except requests.Timeout:
-            self.logger.error(f"The request timed out of {self.config['datahub_api']['timeout_sec']} sec")
-        except requests.RequestException as e:
-            self.logger.error(f"Unexpected error when trying to reach {url}: {e}")
-
     def populate_table_with_batch(self, table_name: str, df_insert: pd.DataFrame, batch_size: int = 1000):
         total_rows = len(df_insert)
         processed_rows = 0
@@ -590,7 +577,7 @@ class ConvertQtrackSource(Source):
 
             # ais0103 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
             columns_order = [
-                'prj_id', 'file_id', 'sql_id', 'table_id','col_id','caps_col_name'
+                'prj_id', 'file_id', 'sql_id', 'table_id', 'col_id', 'caps_col_name'
             ]
 
             df_insert = df[columns_order]
@@ -1221,3 +1208,42 @@ class ConvertQtrackSource(Source):
             self.logger.info("Closed all PostgreSQL connections")
         except Exception as e:
             self.logger.error(f"Error closing PostgreSQL connections: {e}")
+
+    def setup_logger(self, prj_id: str, logger_path: str):
+        # 현재 날짜를 가져옵니다
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # 로그 파일명을 생성합니다
+        log_filename = f"analyzer_{prj_id}.log_{current_date}"
+
+        # 전체 로그 파일 경로를 생성합니다
+        full_log_path = os.path.join(logger_path, log_filename)
+
+        # 로그 디렉토리가 존재하지 않으면 생성합니다
+        os.makedirs(logger_path, exist_ok=True)
+
+        # 로거를 설정합니다
+        self.logger = logging.getLogger("analyzer")
+        self.logger.setLevel(logging.INFO)
+
+        # 파일 핸들러를 생성합니다 (파일이 있으면 append, 없으면 생성)
+        file_handler = logging.FileHandler(full_log_path, mode='a')
+
+        # 커스텀 포매터를 생성합니다
+        class CustomFormatter(logging.Formatter):
+            def format(self, record):
+                level_map = {
+                    'INFO': 'info',
+                    'WARNING': 'warn',
+                    'ERROR': 'eror',
+                    'DEBUG': 'dbug'
+                }
+                record.levelname = level_map.get(record.levelname, record.levelname.lower())
+                return super().format(record)
+
+        formatter = CustomFormatter('[%(asctime)s] [%(levelname)s] %(message)s',
+                                    datefmt='%Y.%m.%d %H:%M:%S')
+        file_handler.setFormatter(formatter)
+
+        # 핸들러를 로거에 추가합니다
+        self.logger.addHandler(file_handler)
