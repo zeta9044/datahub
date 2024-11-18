@@ -58,8 +58,7 @@ a = Analysis([main_script],
 
                # Third party
                'click',
-               'asyncpg',
-               'asyncpg.pgproto.pgproto',
+               'duckdb',
                'cachetools',
                'fastapi',
                'fastapi.responses',
