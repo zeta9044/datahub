@@ -442,11 +442,11 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
             WHERE urn = ? AND aspect = ? AND version = ?
         ''', (urn, aspect, version))
         db_time = time.time() - db_start_time
-        logging.info(f"This request DB operation time: {db_time:.2f}s")
+        logging.debug(f"This request DB operation time: {db_time:.2f}s")
 
         if result is None:
             message = f"Aspect not found for URN: {urn}, Aspect: {aspect}, Version: {version}"
-            logging.info(message)
+            logging.debug(message)
             raise HTTPException(status_code=404, detail=message)
         print(result)
         response = {
