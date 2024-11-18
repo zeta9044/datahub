@@ -2,21 +2,22 @@ import asyncio
 import json
 import logging
 import re
+import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Dict, Any, List
 from urllib.parse import unquote
 
+import asyncpg
 import click
-import duckdb
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 
-from utilities.tool import format_time
+from utilities.tool import format_time, extract_db_info
 
 # Ensure Python 3.10+ is being used
 assert sys.version_info >= (3, 10), "Python 3.10+ is required."
@@ -46,53 +47,84 @@ thread_pool = ThreadPoolExecutor(max_workers=WORKER_POOL_SIZE)
 aspect_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 metadata_cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 
-class DatabaseManager:
-    def __init__(self, db_file: str):
-        self.db_file = db_file
-        self.conn = None
-        self._lock = asyncio.Lock()
+def get_db_config():
+    # config path
+    engine_home = os.getenv("LIAENG_HOME")
+    if not engine_home:
+        raise ValueError("Please define environment variable 'LIAENG_HOME' to your local Lia Engine home path.")
+    config_path = os.path.join(engine_home,'config')
+    if not os.path.exists(config_path):
+        raise ValueError("Config path does not exist.")
 
-    @contextmanager
-    def _transaction(self):
-        """Context manager for database transactions"""
-        try:
-            self.conn.begin()
-            yield
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            raise e
+    # service.xml path
+    service_xml_path = os.path.join(config_path,'service.xml')
+    if not os.path.exists(service_xml_path):
+        raise ValueError("service.xml file does not exist.")
+
+    # security.properties path
+    security_properties_path = os.path.join(config_path,'security.properties')
+    if not os.path.exists(security_properties_path):
+        raise ValueError("security.properties file does not exist.")
+
+    try:
+        # DB 정보 추출
+        host_port, database, username, password = extract_db_info(
+            service_xml_path=service_xml_path,
+            security_properties_path=security_properties_path
+        )
+
+        # PostgreSQL connection string 구성
+        dsn = f"postgresql://{username}:{password}@{host_port}/{database}"
+
+        return {
+            "dsn": dsn
+        }
+
+    except Exception as e:
+        raise ValueError(f"Failed to get database configuration: {str(e)}")
+
+class DatabaseManager:
+    def __init__(self):
+        self.pool = None
+        self._lock = asyncio.Lock()
+        self.config = get_db_config()
 
     async def connect(self):
-        if not self.conn:
-            self.conn = duckdb.connect(self.db_file)
-            await self._initialize_db()
+        if not self.pool:
+            try:
+                self.pool = await asyncpg.create_pool(
+                    dsn=self.config["dsn"],
+                    min_size=5,
+                    max_size=20
+                )
+                await self._initialize_db()
+            except Exception as e:
+                logging.error(f"Database connection error: {e}")
+                raise
 
     async def _initialize_db(self):
-        with self._transaction():
-            self.conn.execute('''
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
                 CREATE TABLE IF NOT EXISTS metadata_aspect_v2 (
-                    urn VARCHAR,
-                    aspect VARCHAR,
-                    version BIGINT,
-                    metadata JSON,
-                    systemMetadata JSON,
+                    urn VARCHAR NOT NULL,
+                    aspect VARCHAR NOT NULL,
+                    version BIGINT NOT NULL,
+                    metadata JSONB,
+                    systemMetadata JSONB,
                     createdon BIGINT,
                     PRIMARY KEY (urn, aspect, version)
                 )
             ''')
-            # Add indexes for common queries
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
-
+            # Create indexes
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_urn ON metadata_aspect_v2(urn)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_aspect ON metadata_aspect_v2(aspect)')
 
     async def execute_fetchall(self, query: str, params: tuple = None):
         async with self._lock:
             start_time = time.time()
             try:
-                result = await asyncio.to_thread(
-                    lambda: self.conn.execute(query, params).fetchall()
-                )
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetch(query, *params if params else [])
                 duration = time.time() - start_time
                 request_metrics['db_latencies'].append(duration)
                 if len(request_metrics['db_latencies']) > 1000:
@@ -106,9 +138,8 @@ class DatabaseManager:
         async with self._lock:
             start_time = time.time()
             try:
-                result = await asyncio.to_thread(
-                    lambda: self.conn.execute(query, params).fetchone()
-                )
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchrow(query, *params if params else [])
                 duration = time.time() - start_time
                 request_metrics['db_latencies'].append(duration)
                 if len(request_metrics['db_latencies']) > 1000:
@@ -122,17 +153,20 @@ class DatabaseManager:
         async with self._lock:
             start_time = time.time()
             try:
-                result = await asyncio.to_thread(
-                    lambda: self.conn.executemany(query, params)
-                )
+                async with self.pool.acquire() as conn:
+                    async with conn.transaction():
+                        await conn.executemany(query, params)
                 duration = time.time() - start_time
                 request_metrics['db_latencies'].append(duration)
                 if len(request_metrics['db_latencies']) > 1000:
                     request_metrics['db_latencies'].pop(0)
-                return result
             except Exception as e:
                 logging.error(f"Database batch operation error: {e}")
                 raise
+
+    async def close(self):
+        if self.pool:
+            await self.pool.close()
 
 class MetricsManager:
     @staticmethod
@@ -268,22 +302,20 @@ def process_aspect(aspect: str, metadata: str) -> Dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.should_exit = False
-    db_manager = DatabaseManager(app.state.db_file)
+    db_manager = DatabaseManager()
 
     try:
         await db_manager.connect()
         app.state.db_manager = db_manager
-
-        # background queue task
-        asyncio.create_task(process_queue(db_manager))
+        queue_task = asyncio.create_task(process_queue(db_manager))
         yield
     except Exception as e:
         logging.error(f"Error during startup: {e}")
         raise
     finally:
         app.state.should_exit = True
-        if hasattr(app.state, 'db_manager') and app.state.db_manager.conn:
-            app.state.db_manager.conn.close()
+        if hasattr(app.state, 'db_manager'):
+            await app.state.db_manager.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -688,7 +720,6 @@ async def health_check():
 
 @click.command()
 @click.option('--log-file', default='async_lite_gms.log', help='Path to log file')
-@click.option('--db-file', default='async_lite_gms.db', help='Path to DuckDB database file')
 @click.option('--log-level', default='ERROR',
               type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']),
               help='Logging level')
@@ -696,7 +727,7 @@ async def health_check():
 @click.option('--workers', default=WORKER_POOL_SIZE, type=int, help='Number of worker threads')
 @click.option('--batch-size', default=BATCH_SIZE, type=int, help='Database batch size')
 @click.option('--cache-ttl', default=CACHE_TTL, type=int, help='Cache TTL in seconds')
-def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
+def main(log_file, log_level, port, workers, batch_size, cache_ttl):
     global WORKER_POOL_SIZE, BATCH_SIZE, CACHE_TTL
 
     WORKER_POOL_SIZE = workers
@@ -706,7 +737,7 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     # Logging setup
     log_config = {
         "version": 1,
-        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
+        "disable_existing_loggers": False,
         "formatters": {
             "default": {
                 "format": "%(asctime)s - %(levelname)s - %(message)s"
@@ -731,8 +762,6 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
             "handlers": ["console", "file"]
         }
     }
-    # Store configuration in app state
-    app.state.db_file = db_file
 
     # Start the FastAPI application
     import uvicorn
@@ -743,8 +772,8 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
         port=port,
         reload=False,
         log_level=log_level.lower(),
-        log_config=log_config,  # 커스텀 로그 설정 적용
-        access_log=False  # access 로그 비활성화 (선택사항)
+        log_config=log_config,
+        access_log=False
     )
 
 if __name__ == "__main__":
