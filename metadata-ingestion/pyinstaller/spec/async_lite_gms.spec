@@ -59,7 +59,7 @@ a = Analysis([main_script],
                # Third party
                'click',
                'asyncpg',
-               'asyncpg.protocol.protocol',
+               'asyncpg.pgproto.pgproto',
                'cachetools',
                'fastapi',
                'fastapi.responses',
