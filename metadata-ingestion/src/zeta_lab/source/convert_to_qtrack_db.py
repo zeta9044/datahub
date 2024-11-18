@@ -36,7 +36,7 @@ class ConvertQtrackSource(Source):
         self.logger.info(f"Connected to DuckDB at {self.config['duckdb_path']}")
         self.pg_pool = self.get_postgres_pool()
         self.logger.info("Initialized PostgreSQL connection pool")
-        self.batch_size = self.config.get("batch_size", 1000)
+        self.batch_size = self.config.get("batch_size", 100)
         self.max_workers = self.config.get("max_workers", 5)
         self.logger.info(f"Batch size: {self.batch_size}, Max workers: {self.max_workers}")
         self.initialize_databases()
@@ -143,12 +143,17 @@ class ConvertQtrackSource(Source):
         for row in results:
             downstream_urn = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
+            self.logger.info(f"Processing lineage for {downstream_urn}")
+            print(f"Processing lineage for {downstream_urn}")
             self.process_lineage(downstream_urn, metadata)
+            print(f"Finished lineage for {downstream_urn}")
+            self.logger.info(f"Finished lineage for {downstream_urn}")
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
-        # populate ais0103,ais0080,ais0081
+        # populate ais0103,ais0112,ais0080,ais0081
         self.populate_ais0103()
+        self.populate_ais0112()
         self.populate_ais0080()
         self.populate_ais0081()
 
@@ -222,11 +227,6 @@ class ConvertQtrackSource(Source):
             self.create_table_info(upstream_urn, upstream_table_id, query_custom_keys, upstream_properties)
             self.create_table_info(downstream_urn, downstream_table_id, query_custom_keys, downstream_properties)
 
-            # Create ais0112 entry (table level lineage)
-            self.process_table_level_lineage(upstream_urn, downstream_urn, query_custom_keys,
-                                             upstream_table_id, downstream_table_id,
-                                             upstream_properties, downstream_properties)
-
         # Process column level lineage separately
         if fine_grained_lineages:
             # Group all upstream URNs and their properties for column processing
@@ -256,77 +256,6 @@ class ConvertQtrackSource(Source):
                     downstream_table_id,
                     upstream_properties, downstream_properties
                 )
-
-    def process_table_level_lineage(self, upstream_urn: str, downstream_urn: str,
-                                    query_custom_keys: Dict, upstream_table_id: int,
-                                    downstream_table_id: int,
-                                    upstream_properties: Dict, downstream_properties: Dict) -> None:
-        try:
-            # Process upstream URN
-            upstream_dataset = DatasetUrn.from_string(upstream_urn)
-            upstream_content = upstream_dataset.get_dataset_name()
-            upstream_owner = NameUtil.get_schema(upstream_content).upper()
-            upstream_table = NameUtil.get_table_name(upstream_content)
-            upstream_sql_obj_type = get_sql_obj_type(upstream_table)
-            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
-            upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
-            upstream_system_biz_id = get_system_biz_id(upstream_properties)
-
-            # Process downstream URN
-            downstream_dataset = DatasetUrn.from_string(downstream_urn)
-            downstream_content = downstream_dataset.get_dataset_name()
-            downstream_owner = NameUtil.get_schema(downstream_content).upper()
-            downstream_table = NameUtil.get_table_name(downstream_content)
-            downstream_sql_obj_type = get_sql_obj_type(downstream_table)
-            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
-            downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
-            downstream_system_biz_id = get_system_biz_id(downstream_properties)
-
-            # Insert into ais0112
-            self.duckdb_conn.execute("""
-                INSERT INTO ais0112 (
-                    prj_id, file_id, sql_id, table_id, obj_id, func_id,
-                    owner_name, table_name, caps_table_name, sql_obj_type,
-                    unique_owner_name, unique_owner_tgt_srv_id, system_biz_id,
-                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_obj_id, call_func_id,
-                    call_owner_name, call_table_name, call_caps_table_name, call_sql_obj_type,
-                    call_unique_owner_name, call_unique_owner_tgt_srv_id, call_system_biz_id,
-                    cond_mapping_bit, data_maker, mapping_kind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                upstream_table_id,
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                upstream_owner,
-                upstream_table,
-                upstream_table.upper(),
-                upstream_sql_obj_type,  # Default sql_obj_type
-                upstream_unique_owner,
-                upstream_unique_owner_tgt_srv_id,
-                upstream_system_biz_id,  # system_biz_id
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                downstream_table_id,
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                downstream_owner,
-                downstream_table,
-                downstream_table.upper(),
-                downstream_sql_obj_type,  # Default sql_obj_type
-                downstream_unique_owner,
-                downstream_unique_owner_tgt_srv_id,
-                downstream_system_biz_id,  # call_system_biz_id
-                2,  # Default cond_mapping_bit
-                7474,  # Default data_maker
-                ''  # Default mapping_kind
-            ))
-            self.logger.debug(f"Created ais0112 entry for {upstream_urn} -> {downstream_urn}")
-        except Exception as e:
-            self.logger.error(f"Error creating ais0112 entry: {e}")
 
     def process_column_level_lineage(self, fine_grained_lineages: List[Dict],
                                      upstream_info: Dict,
@@ -588,8 +517,48 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0103: {e}")
 
+    def populate_ais0112(self):
+        self.logger.info("Populating ais0112 from ais0113")
+        try:
+
+            # SQL 쿼리
+            sql_query = """
+                select
+                    distinct
+                    prj_id, file_id, sql_id, table_id, call_prj_id,
+                    call_file_id, call_sql_id, call_table_id, obj_id, func_id,
+                    owner_name, table_name, caps_table_name, sql_obj_type, call_obj_id,
+                    call_func_id, call_owner_name, call_table_name, call_caps_table_name, call_sql_obj_type,
+                    unique_owner_name, call_unique_owner_name, unique_owner_tgt_srv_id, call_unique_owner_tgt_srv_id, 2 as cond_mapping_bit,
+                    data_maker, mapping_kind, system_biz_id, call_system_biz_id                    
+                from
+                    ais0113
+            """
+
+            # 쿼리 실행 및 데이터 가져오기
+            df = self.duckdb_conn.execute(sql_query).df()
+
+            # ais0112 테이블의 컬럼 순서에 맞게 데이터 프레임 재구성
+            columns_order = [
+                'prj_id', 'file_id', 'sql_id', 'table_id', 'call_prj_id',
+                'call_file_id', 'call_sql_id', 'call_table_id', 'obj_id', 'func_id',
+                'owner_name', 'table_name', 'caps_table_name', 'sql_obj_type', 'call_obj_id',
+                'call_func_id', 'call_owner_name', 'call_table_name', 'call_caps_table_name', 'call_sql_obj_type',
+                'unique_owner_name', 'call_unique_owner_name', 'unique_owner_tgt_srv_id', 'call_unique_owner_tgt_srv_id', 'cond_mapping_bit',
+                'data_maker', 'mapping_kind', 'system_biz_id', 'call_system_biz_id'
+            ]
+
+            df_insert = df[columns_order]
+
+            # 결과를 ais0112 테이블에 batch로 삽입
+            self.populate_table_with_batch('ais0112', df_insert)
+
+        except duckdb.Error as e:
+            self.logger.error(f"Error populating ais0112: {e}")
+
     def populate_ais0080(self):
-        self.logger.info("Populating ais0080 from ais0112")
+        # TODO 아래 쿼리 완성
+        self.logger.info("Populating ais0080 from ais0081")
         try:
 
             # SQL 쿼리
