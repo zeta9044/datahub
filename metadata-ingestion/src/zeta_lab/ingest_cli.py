@@ -72,8 +72,7 @@ config: Dict[str, Any] = {
     'port': 8000,
     'workers': 4,
     'batch_size': 1000,
-    'cache_ttl': 300,
-    'pid_file': 'async_lite_gms.pid'  # PID 파일 경로 추가
+    'cache_ttl': 300
 }
 
 
@@ -225,37 +224,16 @@ def start(ctx):
         "--cache-ttl", str(ctx.obj['config']['cache_ttl'])
     ]
 
-    # 표준 출력을 로그 파일로 리디렉션
-    stdout_log = open(ctx.obj['config']['log_file'], 'a')
-    stderr_log = open(ctx.obj['config']['log_file'], 'a')  # 동일한 로그 파일에 stderr도 기록
-
     try:
         if sys.platform == 'win32':
             if exec_path.endswith('.py'):
                 cmd.insert(0, sys.executable)
-            process = subprocess.Popen(
-                cmd,
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,  # 완전 분리
-                stdout=stdout_log,
-                stderr=stderr_log,
-                close_fds=True
-            )
+            process = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
             if exec_path.endswith('.py'):
                 cmd.insert(0, sys.executable)
-            process = subprocess.Popen(
-                cmd,
-                preexec_fn=os.setsid,  # 새로운 세션에서 실행
-                stdout=stdout_log,
-                stderr=stderr_log,
-                close_fds=True
-            )
-
-        # PID 파일 생성
-        pid_file_path = ctx.obj['config']['pid_file']
-        with open(pid_file_path, 'w') as pid_file:
-            pid_file.write(str(process.pid))
-        logging.info(f"Server PID {process.pid} written to {pid_file_path}")
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # 서버 시작 대기 및 상태 체크
         max_retries = 30  # 최대 30초 대기
@@ -265,18 +243,11 @@ def start(ctx):
             logging.info(f"Server is starting... {i+1} s")
             time.sleep(1)
 
-            # PID 파일에서 PID 읽기
-            current_pid = get_server_pid_from_file(pid_file_path)
-            if current_pid is None:
-                continue
-
             # 프로세스 상태 확인
-            if not is_process_running(current_pid):
-                # 프로세스가 종료됨
-                click.echo("Server process has terminated unexpectedly.")
-                logging.error("Server process has terminated unexpectedly.")
-                stdout_log.close()
-                stderr_log.close()
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                click.echo(f"Server failed to start. Error: {stderr.decode()}")
+                logging.error(f"Server failed to start. Error: {stderr.decode()}")
                 return
 
             # 서버 헬스 체크
@@ -295,55 +266,10 @@ def start(ctx):
         else:
             click.echo("Server started but failed to respond to health check.")
             logging.error("Server started but failed to respond to health check.")
-            # 서버 프로세스를 종료
-            try:
-                if sys.platform == 'win32':
-                    subprocess.run(['taskkill', '/F', '/PID', str(process.pid)], check=True)
-                else:
-                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                click.echo("Server process has been terminated due to failed health check.")
-                logging.info("Server process has been terminated due to failed health check.")
-            except Exception as e:
-                click.echo(f"Failed to terminate server process: {str(e)}")
-                logging.error(f"Failed to terminate server process: {str(e)}")
+
     except Exception as e:
         click.echo(f"Error starting server: {str(e)}")
         logging.error(f"Error starting server: {str(e)}")
-    finally:
-        stdout_log.close()
-        stderr_log.close()
-
-
-def get_server_pid_from_file(pid_file_path):
-    """Read the server PID from the PID file."""
-    try:
-        with open(pid_file_path, 'r') as pid_file:
-            pid = int(pid_file.read().strip())
-            return pid
-    except (FileNotFoundError, ValueError):
-        return None
-
-
-def is_process_running(pid):
-    """Check if a process with the given PID is running."""
-    try:
-        if sys.platform == 'win32':
-            # On Windows, use ctypes to check process existence
-            import ctypes
-            PROCESS_QUERY_INFORMATION = 0x0400
-            process = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
-            if process:
-                ctypes.windll.kernel32.CloseHandle(process)
-                return True
-            else:
-                return False
-        else:
-            # On Unix, sending signal 0 does not kill the process, but raises an error if the process does not exist
-            os.kill(pid, 0)
-            return True
-    except OSError:
-        return False
-
 
 @gms.command()
 @click.pass_context
@@ -361,13 +287,6 @@ def stop(ctx):
             os.kill(pid, signal.SIGTERM)
         click.echo(f"Server (PID: {pid}) has been stopped.")
         logging.info(f"Server (PID: {pid}) has been stopped.")
-
-        # PID 파일 삭제
-        pid_file_path = ctx.obj['config']['pid_file']
-        if os.path.exists(pid_file_path):
-            os.remove(pid_file_path)
-            logging.info(f"PID file {pid_file_path} removed.")
-
     except (subprocess.CalledProcessError, ProcessLookupError) as e:
         click.echo(f"Failed to stop the server. Error: {str(e)}")
         logging.error(f"Failed to stop the server. Error: {str(e)}")
@@ -484,7 +403,6 @@ def reset(ctx):
     click.echo("Settings updated. Restarting server...")
     ctx.invoke(restart)
 
-
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 def ingest(gms):
@@ -507,7 +425,6 @@ def ingest(gms):
         click.echo(f"Error during metadata ingestion: {str(e)}")
         logging.error(f"Error during metadata ingestion: {str(e)}")
 
-
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
@@ -519,7 +436,6 @@ def extract(gms, prj_id):
     except Exception as e:
         click.echo(f"Error during lineage extraction: {str(e)}")
 
-
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
@@ -530,7 +446,6 @@ def move(gms, prj_id):
         click.echo("Lineage movement completed successfully.")
     except Exception as e:
         click.echo(f"Error during lineage movement: {str(e)}")
-
 
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
@@ -552,7 +467,6 @@ def batch(gms, prj_id):
         click.echo("Batch operation completed successfully.")
     except Exception as e:
         click.echo(f"Error during batch operation: {str(e)}")
-
 
 if __name__ == "__main__":
     cli(obj={})
