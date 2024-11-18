@@ -67,7 +67,6 @@ log_registered_components(reporting_provider_registry, "reporters")
 # Global variables for configuration
 config: Dict[str, Any] = {
     "log_file": "async_lite_gms.log",
-    "db_file": "async_lite_gms.db",
     "log_level": "INFO",
     'port': 8000,
     'workers': 4,
@@ -217,7 +216,6 @@ def start(ctx):
     cmd = [
         exec_path,
         "--log-file", ctx.obj['config']['log_file'],
-        "--db-file", ctx.obj['config']['db_file'],
         "--log-level", ctx.obj['config']['log_level'],
         "--port", str(ctx.obj['config']['port']),
         "--workers", str(ctx.obj['config']['workers']),
