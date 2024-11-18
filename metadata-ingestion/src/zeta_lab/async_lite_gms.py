@@ -370,6 +370,7 @@ async def get_config():  # @log_time 데코레이터 제거
 
 
 @app.post("/entities")
+@log_time
 async def ingest_entity(request: Request, action: str = Query(...)):
     """
     :param request: The HTTP request object containing the entity data to be ingested.
@@ -381,7 +382,6 @@ async def ingest_entity(request: Request, action: str = Query(...)):
 
     try:
         data = await request.json()
-        start_time = time.time()
         entity = data.get("entity", {}).get("value", {})
         system_metadata = data.get("systemMetadata", {})
 
@@ -415,9 +415,6 @@ async def ingest_entity(request: Request, action: str = Query(...)):
                     json.dumps(system_metadata),
                     int(time.time() * 1000)
                 ))
-
-        elapsed = time.time() - start_time
-        logging.info(f"ingest_entity took {elapsed:.2f}s")
 
         return {"status": "queued"}
     except Exception as e:
