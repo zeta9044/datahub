@@ -140,14 +140,12 @@ class ConvertQtrackSource(Source):
         # 모든 필요한 프로퍼티를 미리 조회
         self.prefetch_dataset_properties(results)
 
-        for row in results:
+        for index, row in results:
             downstream_urn = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
-            self.logger.info(f"Processing lineage for {downstream_urn}")
-            print(f"Processing lineage for {downstream_urn}")
+            self.logger.info(f"{index+1}/{len(results)}, Processing lineage for {downstream_urn}")
             self.process_lineage(downstream_urn, metadata)
-            print(f"Finished lineage for {downstream_urn}")
-            self.logger.info(f"Finished lineage for {downstream_urn}")
+            self.logger.info(f"{((index+1)/len(results))*100} %, Processed lineage for {downstream_urn}")
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
