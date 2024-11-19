@@ -2,50 +2,9 @@ import os
 
 from zeta_lab.utilities.tool import get_server_pid
 from zeta_lab.utilities.common_logger import setup_logging, cleanup_logger
+from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
 from datahub.ingestion.run.pipeline import Pipeline
-import duckdb
 
-def get_meta_instance(db_path: str, prj_id: str) -> tuple:
-    """
-    DuckDB에서 meta_instance 테이블을 조회하여 첫 번째 결과를 반환합니다.
-
-    Args:
-        db_path (str): DuckDB 데이터베이스 파일 경로
-        prj_id (str): 조회할 job_id 값
-
-    Returns:
-        tuple: (platform, platform_instance, default_db, default_schema)
-
-    Raises:
-        ValueError: 조회 결과가 없을 경우 발생
-        Exception: 데이터베이스 연결 또는 쿼리 실행 중 오류 발생 시
-    """
-    try:
-        # DuckDB 연결
-        conn = duckdb.connect(db_path, read_only=True)
-
-        # 쿼리 실행
-        query = """
-            SELECT lower(platform), lower(platform_instance), lower(default_db), lower(default_schema) 
-            FROM main.meta_instance 
-            WHERE prj_id = ?
-            LIMIT 1
-        """
-        result = conn.execute(query, [prj_id]).fetchone()
-
-        # 연결 종료
-        conn.close()
-
-        # 결과가 없으면 ValueError 발생
-        if result is None:
-            raise ValueError("collect job is not setting. please,complete setting.")
-
-        return result
-
-    except ValueError:
-        raise
-    except Exception as e:
-        raise Exception(f"Error querying meta_instance: {str(e)}")
 
 def extract_lineage(gms_server_url, prj_id, log_file=None):
     """
@@ -84,12 +43,15 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
         if not os.path.exists(metadatadb_path):
             raise ValueError("metadata.db file does not exist.")
 
-        platform,platform_instance,default_db,default_schema = get_meta_instance(metadatadb_path,prj_id)
+        platform, platform_instance, default_db, default_schema = get_meta_instance(
+            metadatadb_path,
+            prj_id,
+            select_columns=(META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
+        )
         logger.info(f"platform:{platform}")
         logger.info(f"platform_instance:{platform_instance}")
         logger.info(f"default_db:{default_db}")
         logger.info(f"default_schema:{default_schema}")
-
 
         # sqlsrc.json path
         sqlsrc_json_path = os.path.join(prj_repo_path, 'sqlsrc.json')
@@ -144,6 +106,7 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
         raise
     finally:
         cleanup_logger(logger)
+
 
 if __name__ == "__main__":
     # example
