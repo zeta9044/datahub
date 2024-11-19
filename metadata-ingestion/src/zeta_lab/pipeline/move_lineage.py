@@ -58,7 +58,7 @@ def move_lineage(gms_server_url,prj_id):
             service_xml_path=service_xml_path,
             security_properties_path=security_properties_path)
 
-        default_system_biz_id = get_meta_instance(metadatadb_path, prj_id, select_columns=META_COLS.SYSTEM_BIZ_ID)
+        system_biz_id = get_meta_instance(metadatadb_path, prj_id, select_columns=META_COLS.SYSTEM_BIZ_ID)
 
         # Define ingestion of converting work from duckdb(metadata) to Postgres(my dbms) configuration
         convert_qtrack_pipeline_config = {
@@ -71,7 +71,7 @@ def move_lineage(gms_server_url,prj_id):
                     },
                     "duckdb_path": lineage_path,
                     "prj_id": prj_id,
-                    "default_system_biz_id": default_system_biz_id,
+                    "system_biz_id": system_biz_id,
                     "logger_path": os.path.join(engine_home,'logs'),
                     "target_config": {
                         "type": "postgres",
