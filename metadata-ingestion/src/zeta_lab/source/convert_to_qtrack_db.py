@@ -141,12 +141,12 @@ class ConvertQtrackSource(Source):
         # 모든 필요한 프로퍼티를 미리 조회
         self.prefetch_dataset_properties(results)
 
-        for index, row in results:
+        for index, row in enumerate(results):
             downstream_urn = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
-            self.logger.info(f"{index+1}/{len(results)}, Processing lineage for {downstream_urn}")
+            self.logger.info(f"{index + 1}/{len(results)}, Processing lineage for {downstream_urn}")
             self.process_lineage(downstream_urn, metadata)
-            self.logger.info(f"{((index+1)/len(results))*100} %, Processed lineage for {downstream_urn}")
+            self.logger.info(f"{((index + 1) / len(results)) * 100} %, Processed lineage for {downstream_urn}")
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
@@ -543,7 +543,8 @@ class ConvertQtrackSource(Source):
                 'call_file_id', 'call_sql_id', 'call_table_id', 'obj_id', 'func_id',
                 'owner_name', 'table_name', 'caps_table_name', 'sql_obj_type', 'call_obj_id',
                 'call_func_id', 'call_owner_name', 'call_table_name', 'call_caps_table_name', 'call_sql_obj_type',
-                'unique_owner_name', 'call_unique_owner_name', 'unique_owner_tgt_srv_id', 'call_unique_owner_tgt_srv_id', 'cond_mapping_bit',
+                'unique_owner_name', 'call_unique_owner_name', 'unique_owner_tgt_srv_id',
+                'call_unique_owner_tgt_srv_id', 'cond_mapping_bit',
                 'data_maker', 'mapping_kind', 'system_biz_id', 'call_system_biz_id'
             ]
 
