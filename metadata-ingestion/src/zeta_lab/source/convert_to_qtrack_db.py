@@ -20,7 +20,9 @@ from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
     get_biz_id, get_sql_obj_type
-
+from zeta_lab.batch.batch_processor import BatchConfig
+from zeta_lab.batch.ais0102_batch import AIS0102BatchProcessor
+from zeta_lab.batch.ais0113_batch import AIS0113BatchProcessor
 
 class ConvertQtrackSource(Source):
     def __init__(self, config: dict, ctx: PipelineContext):
@@ -162,276 +164,212 @@ class ConvertQtrackSource(Source):
 
         return []
 
-    def create_table_info(self, stream_urn: str, table_id: int,
-                          query_custom_keys: Dict, stream_properties: Dict) -> None:
-        prj_id = query_custom_keys.get('prj_id', '')
-        file_id = int(query_custom_keys.get('file_id', 0))
-        sql_id = int(query_custom_keys.get('sql_id', 0))
-        obj_id = int(query_custom_keys.get('obj_id', 0))
-        func_id = int(query_custom_keys.get('func_id', 0))
-        query_type = query_custom_keys.get('query_type', '')
-        query_type_props_str = query_custom_keys.get('query_type_props', '{}')
-
-        # query_type_props가 문자열이므로 JSON 형식으로 파싱
-        if isinstance(query_type_props_str, str):
-            try:
-                query_type_props = json.loads(query_type_props_str)
-            except json.JSONDecodeError:
-                query_type_props = {}  # 파싱 오류 시 기본값으로 빈 딕셔너리 사용
-        else:
-            query_type_props = query_type_props_str  # 이미 딕셔너리인 경우 그대로 사용
-
-        # 이제 query_type_props에서 'temporary' 키를 안전하게 가져올 수 있음
-        TEMPORARY_TABLE = '$tb'
-        REGULAR_TABLE = 'tbl'
-        FILE_TABLE = 'fil'
-        stream_dataset = DatasetUrn.from_string(stream_urn)
-        stream_content = stream_dataset.get_dataset_name()
-        stream_table = NameUtil.get_table_name(stream_content)
-        sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
-        sql_obj_type = get_sql_obj_type(stream_table)
-        sql_obj_type = FILE_TABLE if 's3://' in stream_table else sql_obj_type
-        system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(stream_properties)
-        system_tgt_srv_id = get_system_tgt_srv_id(stream_properties)
-        owner_srv_id = get_owner_srv_id(stream_properties)
-        system_id = get_system_id(stream_properties)
-        biz_id = get_biz_id(stream_properties)
-
-        try:
-            self.duckdb_conn.execute("""
-                        INSERT OR REPLACE INTO ais0102 
-                        (prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, table_urn, system_biz_id,system_tgt_srv_id,owner_srv_id,system_id,biz_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
-                    """, (
-                prj_id, file_id, sql_id, table_id, obj_id, func_id, query_type, sql_obj_type, stream_urn, system_biz_id,
-                system_tgt_srv_id, owner_srv_id, system_id, biz_id))
-            self.logger.debug(f"Inserted/Updated record in ais0102 for table_urn: {stream_urn}")
-        except duckdb.Error as e:
-            self.logger.error(f"Error inserting into ais0102: {e}")
-
-    def process_lineage(self, downstream_urn: str, metadata: Dict) -> None:
-        upstreams = metadata.get('upstreams', [])
-        fine_grained_lineages = metadata.get('fineGrainedLineages', [])
-        downstream_properties = self.get_dataset_properties(downstream_urn)
-        downstream_table_id = self.get_table_id(downstream_urn)
-
-        # Process each upstream table - table level lineage only
-        for upstream in upstreams:
-            upstream_urn = upstream['dataset']
-            query_custom_keys = upstream.get('query_custom_keys', {})
-            upstream_properties = self.get_dataset_properties(upstream_urn)
-            upstream_table_id = self.get_table_id(upstream_urn)
-
-            # Create ais0102 entry (table info)
-            self.create_table_info(upstream_urn, upstream_table_id, query_custom_keys, upstream_properties)
-            self.create_table_info(downstream_urn, downstream_table_id, query_custom_keys, downstream_properties)
-
-        # Process column level lineage separately
-        if fine_grained_lineages:
-            # Group all upstream URNs and their properties for column processing
-            upstream_info = {
-                upstream['dataset']: {
-                    'table_id': self.get_table_id(upstream['dataset']),
-                    'properties': self.get_dataset_properties(upstream['dataset']),
-                    'query_custom_keys': upstream.get('query_custom_keys', {})
-                }
-                for upstream in upstreams
-            }
-
-            self.process_column_level_lineage(fine_grained_lineages, upstream_info,
-                                              downstream_urn, downstream_table_id,
-                                              downstream_properties)
-        else:
-            # If no fine-grained lineage exists, create virtual mappings for each upstream
-            for upstream in upstreams:
-                upstream_urn = upstream['dataset']
-                query_custom_keys = upstream.get('query_custom_keys', {})
-                upstream_properties = self.get_dataset_properties(upstream_urn)
-                upstream_table_id = self.get_table_id(upstream_urn)
-
-                self.create_virtual_column_lineage(
-                    upstream_urn, downstream_urn,
-                    query_custom_keys, upstream_table_id,
-                    downstream_table_id,
-                    upstream_properties, downstream_properties
-                )
-
-    def process_column_level_lineage(self, fine_grained_lineages: List[Dict],
-                                     upstream_info: Dict,
-                                     downstream_urn: str,
-                                     downstream_table_id: int,
-                                     downstream_properties: Dict) -> None:
+    def _prepare_lineage_data(self, downstream_urn: str, metadata: Dict) -> Dict:
         """
-        Process fine-grained lineage information for column-level mapping
+        리니지 처리를 위한 데이터 준비
 
         Args:
-            fine_grained_lineages: List of fine-grained lineage information
-            upstream_info: Dictionary containing information about upstream tables
-            downstream_urn: URN of the downstream table
-            downstream_table_id: ID of the downstream table
-            downstream_properties: Properties of the downstream table
+            downstream_urn: 다운스트림 URN
+            metadata: 리니지 메타데이터
+
+        Returns:
+            Dict containing prepared data for processing
         """
-        for lineage in fine_grained_lineages:
-            upstreams = lineage.get('upstreams', [])
-            downstreams = lineage.get('downstreams', [])
-            transform_operation = lineage.get('transformOperation', '')
+        # 기본 구조 초기화
+        downstream_info = {
+            'urn': downstream_urn,
+            'properties': self.get_dataset_properties(downstream_urn),
+            'table_id': self.get_table_id(downstream_urn)
+        }
 
-            for upstream_col in upstreams:
-                # Extract the table URN from the column URN
-                # Format: "urn:li:schemaField:(urn:li:dataset:(platform,name,env),field_path)"
-                upstream_table_urn = upstream_col[upstream_col.find("(") + 1:upstream_col.rfind(",")]
-                if upstream_table_urn not in upstream_info:
-                    self.logger.warning(f"Upstream table {upstream_table_urn} not found in upstream_info")
-                    continue
+        prepared_data = {
+            'downstream': downstream_info,
+            'upstreams': [],
+            'column_mappings': []
+        }
 
-                upstream_data = upstream_info[upstream_table_urn]
+        # 업스트림 데이터 준비
+        for upstream in metadata.get('upstreams', []):
+            upstream_urn = upstream['dataset']
+            upstream_table_id = self.get_table_id(upstream_urn)
+            upstream_data = {
+                'urn': upstream_urn,
+                'properties': self.get_dataset_properties(upstream_urn),
+                'table_id': upstream_table_id,
+                'query_custom_keys': upstream.get('query_custom_keys', {})
+            }
+            prepared_data['upstreams'].append(upstream_data)
 
-                for downstream_col in downstreams:
-                    self.create_column_lineage_entry(
-                        upstream_table_urn, downstream_urn,
-                        upstream_col, downstream_col,
-                        transform_operation,
-                        upstream_data['query_custom_keys'],
-                        upstream_data['table_id'],
-                        downstream_table_id,
-                        upstream_data['properties'],
-                        downstream_properties
-                    )
+            # 가상 매핑이 필요할 경우를 대비해 업스트림 정보 저장
+            if not metadata.get('fineGrainedLineages'):
+                mapping = {
+                    'upstream': upstream_data,
+                    'upstream_col': {
+                        'name': '*',
+                        'table_id': upstream_table_id,
+                        'col_id': self.get_column_id(upstream_table_id, '*')
+                    },
+                    'downstream_col': {
+                        'name': '*',
+                        'table_id': downstream_info['table_id'],
+                        'col_id': self.get_column_id(downstream_info['table_id'], '*')
+                    },
+                    'transform_operation': '',
+                    'col_order_no': self.get_next_column_order(upstream_urn),
+                    'call_col_order_no': self.get_next_column_order(downstream_urn)
+                }
+                prepared_data['column_mappings'].append(mapping)
 
-    def create_virtual_column_lineage(self, upstream_urn: str, downstream_urn: str,
-                                      query_custom_keys: Dict, upstream_table_id: int,
-                                      downstream_table_id: int,
-                                      downstream_properties: Dict, upstream_properties: Dict) -> None:
+        # 컬럼 레벨 리니지 처리
+        fine_grained_lineages = metadata.get('fineGrainedLineages', [])
+        if fine_grained_lineages:
+            prepared_data['column_mappings'] = []  # 기존 가상 매핑 제거
+
+            for lineage in fine_grained_lineages:
+                upstream_cols = lineage.get('upstreams', [])
+                downstream_cols = lineage.get('downstreams', [])
+                transform_operation = lineage.get('transformOperation', '')
+
+                for upstream_col_urn in upstream_cols:
+                    for downstream_col_urn in downstream_cols:
+                        # Extract column names from URNs
+                        upstream_col_name = self.extract_column_name(upstream_col_urn)
+                        downstream_col_name = self.extract_column_name(downstream_col_urn)
+
+                        # Extract table URNs from column URNs
+                        upstream_table_urn = upstream_col_urn[upstream_col_urn.find("(") + 1:upstream_col_urn.rfind(",")]
+
+                        # Find matching upstream data
+                        upstream_data = next(
+                            (up for up in prepared_data['upstreams'] if up['urn'] == upstream_table_urn),
+                            None
+                        )
+
+                        if upstream_data:
+                            mapping = {
+                                'upstream': upstream_data,
+                                'upstream_col': {
+                                    'name': upstream_col_name,
+                                    'table_id': upstream_data['table_id'],
+                                    'col_id': self.get_column_id(upstream_data['table_id'], upstream_col_name)
+                                },
+                                'downstream_col': {
+                                    'name': downstream_col_name,
+                                    'table_id': downstream_info['table_id'],
+                                    'col_id': self.get_column_id(downstream_info['table_id'], downstream_col_name)
+                                },
+                                'transform_operation': transform_operation,
+                                'col_order_no': self.get_next_column_order(upstream_table_urn),
+                                'call_col_order_no': self.get_next_column_order(downstream_urn)
+                            }
+                            prepared_data['column_mappings'].append(mapping)
+
+        return prepared_data
+
+    def process_lineage(self, downstream_urn: str, metadata: Dict) -> None:
         """
-        Create virtual '*' column mapping when no fine-grained lineage exists
-        """
-        upstream_virtual_col = f"urn:li:schemaField:({upstream_urn},*)"
-        downstream_virtual_col = f"urn:li:schemaField:({downstream_urn},*)"
+        리니지 정보를 처리하고 배치 방식으로 데이터베이스에 저장
 
-        self.create_column_lineage_entry(
-            upstream_urn, downstream_urn,
-            upstream_virtual_col, downstream_virtual_col,
-            '', query_custom_keys,
-            upstream_table_id, downstream_table_id,
-            upstream_properties, downstream_properties
+        Args:
+            downstream_urn: 다운스트림 URN
+            metadata: 리니지 메타데이터
+        """
+        # 배치 프로세서 초기화
+        config = BatchConfig(
+            chunk_size=5,
+            batch_size=10,
+            logger=self.logger
         )
 
-    def create_column_lineage_entry(self, upstream_urn: str, downstream_urn: str,
-                                    upstream_col_urn: str, downstream_col_urn: str,
-                                    transform_operation: str, query_custom_keys: Dict,
-                                    upstream_table_id: int, downstream_table_id: int,
-                                    upstream_properties: Dict, downstream_properties: Dict) -> None:
-        """
-        Create an entry in the ais0113 table for column-level lineage
-        """
+        ais0102_processor = AIS0102BatchProcessor(self.duckdb_conn, config)
+        ais0113_processor = AIS0113BatchProcessor(self.duckdb_conn, config)
+
         try:
-            # Extract column names from URNs
-            upstream_col_name = self.extract_column_name(upstream_col_urn)
-            downstream_col_name = self.extract_column_name(downstream_col_urn)
+            # 데이터 준비
+            prepared_data = self._prepare_lineage_data(downstream_urn, metadata)
 
-            # Get column IDs
-            upstream_col_id = self.get_column_id(upstream_table_id, upstream_col_name)
-            downstream_col_id = self.get_column_id(downstream_table_id, downstream_col_name)
+            # 데이터 검증 및 통계 로깅
+            self._validate_and_log_stats(prepared_data)
 
-            # Process URNs for owner and table information
-            upstream_dataset = DatasetUrn.from_string(upstream_urn)
-            downstream_dataset = DatasetUrn.from_string(downstream_urn)
+            # AIS0102 처리 (테이블 레벨 리니지)
+            for upstream in prepared_data['upstreams']:
+                ais0102_processor.add_item({
+                    'urn': upstream['urn'],
+                    'table_id': upstream['table_id'],
+                    'query_custom_keys': upstream['query_custom_keys'],
+                    'properties': upstream['properties']
+                })
 
-            upstream_content = upstream_dataset.get_dataset_name()
-            downstream_content = downstream_dataset.get_dataset_name()
+            # 다운스트림 테이블도 AIS0102에 추가
+            ais0102_processor.add_item({
+                'urn': prepared_data['downstream']['urn'],
+                'table_id': prepared_data['downstream']['table_id'],
+                'query_custom_keys': metadata.get('upstreams', [{}])[0].get('query_custom_keys', {}),
+                'properties': prepared_data['downstream']['properties']
+            })
 
-            upstream_owner = NameUtil.get_schema(upstream_content).upper()
-            upstream_table = NameUtil.get_table_name(upstream_content)
-            upstream_sql_obj_type = get_sql_obj_type(upstream_table)
-            upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
-            upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
-            upstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(upstream_properties)
+            # AIS0113 처리 (컬럼 레벨 리니지)
+            for mapping in prepared_data['column_mappings']:
+                ais0113_processor.add_item({
+                    'upstream': mapping['upstream'],
+                    'downstream': prepared_data['downstream'],
+                    'upstream_col': mapping['upstream_col'],
+                    'downstream_col': mapping['downstream_col'],
+                    'transform_operation': mapping.get('transform_operation', ''),
+                    'col_order_no': mapping.get('col_order_no', 0),
+                    'call_col_order_no': mapping.get('call_col_order_no', 0)
+                })
 
-            downstream_owner = NameUtil.get_schema(downstream_content).upper()
-            downstream_table = NameUtil.get_table_name(downstream_content)
-            downstream_sql_obj_type = get_sql_obj_type(downstream_table)
-            downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
-            downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
-            downstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(downstream_properties)
+            # 남은 배치 처리
+            ais0102_processor.finalize()
+            ais0113_processor.finalize()
 
-            # 컬럼 순서 가져오기
-            upstream_col_order_no = self.get_next_column_order(upstream_urn)
-            downstream_col_order_no = self.get_next_column_order(downstream_urn)
+            # 최종 처리 결과 로깅
+            self.logger.info(f"Successfully processed lineage for {downstream_urn}")
+            self.logger.info(f"Processed {len(prepared_data['upstreams'])} upstream tables")
+            self.logger.info(f"Processed {len(prepared_data['column_mappings'])} column mappings")
 
-            # Insert into ais0113
-            self.duckdb_conn.execute("""
-                INSERT INTO ais0113 (
-                    prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id,
-                    owner_name, table_name, caps_table_name, sql_obj_type,
-                    col_name, caps_col_name, col_value_yn, col_expr,
-                    col_name_org, caps_col_name_org,
-                    unique_owner_name, unique_owner_tgt_srv_id,
-                    system_biz_id,
-                    call_prj_id, call_file_id, call_sql_id, call_table_id, call_col_id,
-                    call_obj_id, call_func_id, call_owner_name, call_table_name,
-                    call_caps_table_name, call_sql_obj_type,
-                    call_col_name, call_caps_col_name, call_col_value_yn, call_col_expr,
-                    call_col_name_org, call_caps_col_name_org,
-                    call_unique_owner_name, call_unique_owner_tgt_srv_id,
-                    call_system_biz_id,
-                    col_order_no,
-                    call_col_order_no, 
-                    adj_col_order_no,
-                    call_adj_col_order_no,                                        
-                    cond_mapping, data_maker, mapping_kind
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?)
-            """, (
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                upstream_table_id,
-                upstream_col_id,
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                upstream_owner,
-                upstream_table,
-                upstream_table.upper(),
-                upstream_sql_obj_type,
-                upstream_col_name,
-                upstream_col_name.upper() if upstream_col_name != '*' else '*',
-                'N',  # col_value_yn
-                transform_operation,  # col_expr
-                upstream_col_name,  # col_name_org
-                upstream_col_name.upper() if upstream_col_name != '*' else '*',  # caps_col_name_org
-                upstream_unique_owner,
-                upstream_unique_owner_tgt_srv_id,
-                upstream_system_biz_id,
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                downstream_table_id,
-                downstream_col_id,
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                downstream_owner,
-                downstream_table,
-                downstream_table.upper(),
-                downstream_sql_obj_type,
-                downstream_col_name,
-                downstream_col_name.upper() if downstream_col_name != '*' else '*',
-                'N',  # call_col_value_yn
-                '',  # call_col_expr
-                downstream_col_name,  # call_col_name_org
-                downstream_col_name.upper() if downstream_col_name != '*' else '*',  # call_caps_col_name_org
-                downstream_unique_owner,
-                downstream_unique_owner_tgt_srv_id,
-                downstream_system_biz_id,
-                upstream_col_order_no,
-                downstream_col_order_no,
-                upstream_col_order_no,
-                downstream_col_order_no,
-                1,  # cond_mapping
-                'ingest_cli',  # data_maker
-                ''  # mapping_kind
-            ))
-            self.logger.debug(f"Created ais0113 entry for {upstream_col_name} -> {downstream_col_name}")
         except Exception as e:
-            self.logger.error(f"Error creating ais0113 entry: {e}")
+            self.logger.error(f"Error processing lineage for {downstream_urn}: {e}")
+            raise
+
+    def _validate_and_log_stats(self, prepared_data: Dict) -> None:
+        """
+        준비된 데이터 검증 및 통계 로깅
+
+        Args:
+            prepared_data: 준비된 리니지 데이터
+        """
+        # 기본 통계
+        upstream_count = len(prepared_data['upstreams'])
+        mapping_count = len(prepared_data['column_mappings'])
+
+        self.logger.info(f"Lineage Statistics:")
+        self.logger.info(f"- Upstream tables: {upstream_count}")
+        self.logger.info(f"- Column mappings: {mapping_count}")
+
+        # 데이터 검증
+        if not prepared_data['upstreams']:
+            self.logger.warning("No upstream tables found in lineage")
+
+        if not prepared_data['column_mappings']:
+            self.logger.info("No column mappings found, using virtual mappings")
+
+        # 중복 확인
+        unique_mappings = {
+            (m['upstream_col']['col_id'], m['downstream_col']['col_id'])
+            for m in prepared_data['column_mappings']
+        }
+        if len(unique_mappings) != mapping_count:
+            self.logger.warning("Duplicate column mappings detected")
+
+        # 메모리 사용량 추정
+        estimated_memory = (
+                len(str(prepared_data)) +
+                sum(len(str(u)) for u in prepared_data['upstreams']) +
+                sum(len(str(m)) for m in prepared_data['column_mappings'])
+        )
+        self.logger.debug(f"Estimated memory usage: {estimated_memory / 1024:.2f}KB")
 
     def populate_table_with_batch(self, table_name: str, df_insert: pd.DataFrame, batch_size: int = 1000):
         total_rows = len(df_insert)
