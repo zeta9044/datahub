@@ -1,6 +1,6 @@
 import os
 import duckdb
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Union
 
 class MetaColumns(NamedTuple):
     PLATFORM: int = 0
@@ -11,19 +11,12 @@ class MetaColumns(NamedTuple):
 
 META_COLS = MetaColumns()
 
-def get_meta_instance(db_path: str, prj_id: str,  select_columns: Optional[tuple[int, ...]] = None) -> tuple:
+def get_meta_instance(db_path: str, prj_id: str,  select_columns: Union[tuple[int, ...], int] = None) -> tuple:
     """
-    DuckDB에서 meta_instance 테이블의 지정된 컬럼을 조회합니다.
-
-    Args:
-        db_path (str): DuckDB 데이터베이스 파일 경로
-        prj_id (str): 조회할 job_id 값
-        select_columns (tuple): 조회할 컬럼 인덱스의 튜플
-                              예: (META_COLS['PLATFORM'], META_COLS['DEFAULT_DB'])
-                              None일 경우 모든 컬럼 반환
-
-    Returns:
-        tuple: 요청된 컬럼들의 값
+    :param db_path: The file path to the metadata database.
+    :param prj_id: The project ID to filter the meta_instance records.
+    :param select_columns: Optional tuple of integers specifying which columns to return from the result. If not provided, all columns are returned.
+    :return: A tuple containing the requested columns from the meta_instance table. If select_columns is specified, only the columns at the specified indices are returned. Raises ValueError if the prj_id does not exist or if the db_path is invalid. Raises a generic Exception for other errors encountered during the query execution.
     """
     if not os.path.exists(db_path):
         raise ValueError("metadata.db file does not exist.")
