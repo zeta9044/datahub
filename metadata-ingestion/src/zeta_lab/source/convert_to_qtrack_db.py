@@ -32,6 +32,7 @@ class ConvertQtrackSource(Source):
         self.logger.info(" ingesting source")
         self.logger.info(" ================================================================")
         self.logger.info("Initializing ConvertQtrackSource")
+        self.system_biz_id = self.config['system_biz_id']
         self.duckdb_conn = duckdb.connect(self.config["duckdb_path"])
         self.logger.info(f"Connected to DuckDB at {self.config['duckdb_path']}")
         self.pg_pool = self.get_postgres_pool()
@@ -190,7 +191,7 @@ class ConvertQtrackSource(Source):
         sql_obj_type = TEMPORARY_TABLE if query_type_props.get('temporary', False) else REGULAR_TABLE
         sql_obj_type = get_sql_obj_type(stream_table)
         sql_obj_type = FILE_TABLE if 's3://' in stream_table else sql_obj_type
-        system_biz_id = get_system_biz_id(stream_properties)
+        system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(stream_properties)
         system_tgt_srv_id = get_system_tgt_srv_id(stream_properties)
         owner_srv_id = get_owner_srv_id(stream_properties)
         system_id = get_system_id(stream_properties)
@@ -344,14 +345,14 @@ class ConvertQtrackSource(Source):
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
             upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
             upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
-            upstream_system_biz_id = get_system_biz_id(upstream_properties)
+            upstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(upstream_properties)
 
             downstream_owner = NameUtil.get_schema(downstream_content).upper()
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
             downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
             downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
-            downstream_system_biz_id = get_system_biz_id(downstream_properties)
+            downstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(downstream_properties)
 
             # 컬럼 순서 가져오기
             upstream_col_order_no = self.get_next_column_order(upstream_urn)
