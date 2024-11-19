@@ -557,64 +557,22 @@ class ConvertQtrackSource(Source):
             self.logger.error(f"Error populating ais0112: {e}")
 
     def populate_ais0080(self):
-        # TODO 아래 쿼리 완성
         self.logger.info("Populating ais0080 from ais0081")
         try:
 
             # SQL 쿼리
             sql_query = """
                 SELECT DISTINCT
-                    prj_id AS src_prj_id, 
-                    owner_name AS src_owner_name, 
-                    caps_table_name AS src_caps_table_name, 
-                    table_name AS src_table_name,
-                    caps_table_name AS src_table_name_org,
-                    sql_obj_type AS src_table_type, 
-                    cast(file_id as VARCHAR) AS src_mte_table_id,
-                    call_prj_id AS tgt_prj_id, 
-                    call_owner_name AS tgt_owner_name, 
-                    call_caps_table_name AS tgt_caps_table_name, 
-                    call_table_name AS tgt_table_name, 
-                    call_caps_table_name AS tgt_table_name_org,
-                    call_sql_obj_type AS tgt_table_type, 
-                    cast(call_file_id as VARCHAR) AS tgt_mte_table_id,
-                    unique_owner_tgt_srv_id AS src_owner_tgt_srv_id, 
-                    call_unique_owner_tgt_srv_id AS tgt_owner_tgt_srv_id, 
-                    cond_mapping_bit, 
-                    mapping_kind, 
-                    system_biz_id AS src_system_biz_id,
-                    call_system_biz_id AS tgt_system_biz_id,
-                    CASE 
-                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
-                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
-                        ELSE split_part(unique_owner_name, '.', 1)
-                    END AS src_db_instance_org,
-                    CASE 
-                        WHEN split_part(unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
-                        WHEN split_part(unique_owner_name, '.', 2) IS NULL THEN split_part(unique_owner_name, '.', 1)
-                        ELSE split_part(unique_owner_name, '.', 2)
-                    END AS src_schema_org,
-                    CASE 
-                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]' 
-                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
-                        ELSE split_part(call_unique_owner_name, '.', 1)
-                    END AS tgt_db_instance_org,
-                    CASE 
-                        WHEN split_part(call_unique_owner_name, '.', 2) = '' THEN '[owner_undefined]'
-                        WHEN split_part(call_unique_owner_name, '.', 2) IS NULL THEN split_part(call_unique_owner_name, '.', 1)
-                        ELSE split_part(call_unique_owner_name, '.', 2)
-                    END AS tgt_schema_org,          
-                    split_part(system_biz_id, '_', 1) AS src_system_id,
-                    CASE 
-                        WHEN split_part(system_biz_id, '_', 1) LIKE '[owner%' AND split_part(system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
-                        ELSE split_part(system_biz_id, '_', 2)
-                    END AS src_biz_id,      
-                    split_part(system_biz_id, '_', 1) AS tgt_system_id,
-                    CASE 
-                        WHEN split_part(call_system_biz_id, '_', 1) LIKE '[owner%' AND split_part(call_system_biz_id, '_', 2) = 'undefined' THEN 'undefined'
-                        ELSE split_part(call_system_biz_id, '_', 2)
-                    END AS tgt_biz_id                                               
-                FROM ais0112
+                    src_prj_id, src_owner_name, src_caps_table_name, src_table_name, src_table_name_org,
+                    src_table_type, src_mte_table_id,
+                    tgt_prj_id, tgt_owner_name, tgt_caps_table_name, tgt_table_name, tgt_table_name_org,
+                    tgt_table_type, tgt_mte_table_id,
+                    src_owner_tgt_srv_id, tgt_owner_tgt_srv_id,
+                    2 as cond_mapping_bit, mapping_kind,
+                    src_system_biz_id, tgt_system_biz_id,
+                    src_db_instance_org, src_schema_org, tgt_db_instance_org, tgt_schema_org,
+                    src_system_id, src_biz_id, tgt_system_id, tgt_biz_id                                              
+                FROM ais0081
             """
 
             # 쿼리 실행 및 데이터 가져오기
