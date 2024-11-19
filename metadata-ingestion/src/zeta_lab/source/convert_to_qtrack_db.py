@@ -1,8 +1,7 @@
 import asyncio
-import json
-from datetime import datetime
-import os
 import logging
+import os
+from datetime import datetime
 from typing import List, Dict, Iterable, Tuple, Any
 
 import duckdb
@@ -17,12 +16,15 @@ from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
-from zeta_lab.utilities.tool import NameUtil, get_system_biz_id, get_system_tgt_srv_id, get_owner_srv_id, get_system_id, \
-    get_biz_id, get_sql_obj_type
-from zeta_lab.batch.batch_processor import BatchConfig
+from zeta_lab.batch.postgres_transfer import PartitionedTransferManager
+from zeta_lab.batch.table_config import TableConfigFactory, PostgresTableConfig
 from zeta_lab.batch.ais0102_batch import AIS0102BatchProcessor
 from zeta_lab.batch.ais0113_batch import AIS0113BatchProcessor
+from zeta_lab.batch.batch_processor import BatchConfig
+from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
+from zeta_lab.utilities.tool import NameUtil
+from zeta_lab.batch.table_populator import TablePopulatorConfig, OptimizedTablePopulator
+
 
 class ConvertQtrackSource(Source):
     def __init__(self, config: dict, ctx: PipelineContext):
@@ -152,15 +154,17 @@ class ConvertQtrackSource(Source):
 
         self.logger.info(f"Processed {len(results)} lineage records")
 
-        # populate ais0103,ais0112,ais0080,ais0081
-        self.populate_ais0103()
-        self.populate_ais0112()
-        self.populate_ais0080()
-        self.populate_ais0081()
+        # Populate derived tables using table populator
+        config = TablePopulatorConfig(
+            threads=4,
+            logger=self.logger
+        )
+        populator = OptimizedTablePopulator(self.duckdb_conn, config)
+        populator.populate_tables()
 
-        # After processing all lineage records
-        self.logger.info("Starting asynchronous transfer to PostgreSQL")
-        asyncio.run(self.transfer_to_postgresql())
+        # Transfer data to PostgreSQL
+        self.logger.info("Starting transfer to PostgreSQL")
+        self.transfer_to_postgresql()
 
         return []
 
@@ -237,7 +241,8 @@ class ConvertQtrackSource(Source):
                         downstream_col_name = self.extract_column_name(downstream_col_urn)
 
                         # Extract table URNs from column URNs
-                        upstream_table_urn = upstream_col_urn[upstream_col_urn.find("(") + 1:upstream_col_urn.rfind(",")]
+                        upstream_table_urn = upstream_col_urn[
+                                             upstream_col_urn.find("(") + 1:upstream_col_urn.rfind(",")]
 
                         # Find matching upstream data
                         upstream_data = next(
@@ -276,8 +281,8 @@ class ConvertQtrackSource(Source):
         """
         # 배치 프로세서 초기화
         config = BatchConfig(
-            chunk_size=5,
-            batch_size=10,
+            chunk_size=5000,
+            batch_size=10000,
             logger=self.logger
         )
 
@@ -631,35 +636,71 @@ class ConvertQtrackSource(Source):
         except duckdb.Error as e:
             self.logger.error(f"Error populating ais0081: {e}")
 
-    async def transfer_to_postgresql(self):
-        self.logger.info("Starting asynchronous batch transfer to PostgreSQL")
+    def transfer_to_postgresql(self):
+        """DuckDB에서 PostgreSQL로 데이터 전송"""
+        self.logger.info("Starting transfer to PostgreSQL")
 
         try:
-            # Delete existing records first
-            await self.delete_existing_records()
+            # Initialize transfer manager
+            transfer_config = {
+                'duckdb_conn': self.duckdb_conn,
+                'pg_pool': self.pg_pool,
+                'logger': self.logger,
+                'max_workers': self.max_workers,
+                'batch_size': 10000,  # 한 번에 읽어올 레코드 수
+                'pg_batch_count': 5  # PostgreSQL에 한 번에 보낼 배치 수
+            }
 
-            # Transfer ais0102
-            await self.transfer_ais0102()
+            transfer_manager = PartitionedTransferManager(transfer_config)
 
-            # Transfer ais0103
-            await self.transfer_table('ais0103')
+            # Process tables in order
+            table_process_order = ['ais0102', 'ais0103', 'ais0112', 'ais0113', 'ais0080', 'ais0081']
 
-            # Transfer ais0112
-            await self.transfer_table('ais0112')
-
-            # Transfer ais0113
-            await self.transfer_table('ais0113')
-
-            # Transfer ais0080
-            await self.transfer_table_with_sequence('ais0080')
-
-            # Transfer ais0081
-            await self.transfer_table_with_sequence('ais0081')
+            for table_name in table_process_order:
+                self.logger.info(f"Starting transfer for {table_name}")
+                transfer_manager.transfer_table(table_name)
+                self.logger.info(f"Completed transfer for {table_name}")
 
         except Exception as e:
             self.logger.error(f"Error during transfer to PostgreSQL: {e}")
+            raise
 
-        self.logger.info("Completed asynchronous batch transfer to PostgreSQL")
+        self.logger.info("Completed all transfers to PostgreSQL")
+
+    def _get_duckdb_columns(self, table_name: str) -> List[str]:
+        """DuckDB 테이블의 컬럼 목록 조회"""
+        query = f"DESCRIBE {table_name}"
+        columns = self.duckdb_conn.execute(query).fetchall()
+        return [col[0] for col in columns]
+
+    def _delete_existing_records(self):
+        """기존 레코드 삭제"""
+        self.logger.info("Deleting existing records from target tables")
+
+        delete_queries = [
+            "DELETE FROM ais0102 WHERE prj_id = %s",
+            "DELETE FROM ais0103 WHERE prj_id = %s",
+            "DELETE FROM ais0112 WHERE prj_id = %s",
+            "DELETE FROM ais0113 WHERE prj_id = %s",
+            "DELETE FROM ais0080 WHERE src_prj_id = %s",
+            "DELETE FROM ais0081 WHERE src_prj_id = %s"
+        ]
+
+        conn = self.pg_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                prj_id = self.config.get('prj_id', '')
+                for query in delete_queries:
+                    cur.execute(query, (prj_id,))
+                    deleted_rows = cur.rowcount
+                    self.logger.info(f"Deleted {deleted_rows} rows using query: {query}")
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            self.logger.error(f"Error deleting existing records: {e}")
+            raise
+        finally:
+            self.pg_pool.putconn(conn)
 
     async def transfer_ais0102(self):
         self.logger.info("Transferring ais0102 to PostgreSQL")
