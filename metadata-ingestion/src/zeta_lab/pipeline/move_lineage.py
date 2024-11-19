@@ -1,6 +1,7 @@
 import os
 
 from zeta_lab.utilities.tool import extract_db_info,get_server_pid
+from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
 from datahub.ingestion.run.pipeline import Pipeline
 
 def move_lineage(gms_server_url,prj_id):
@@ -48,9 +49,16 @@ def move_lineage(gms_server_url,prj_id):
         if not os.path.exists(lineage_path):
             raise ValueError("lineage.db file does not exist.")
 
+        # metadata.db path
+        metadatadb_path = os.path.join(engine_home, 'bin', 'metadata.db')
+        if not os.path.exists(metadatadb_path):
+            raise ValueError("metadata.db file does not exist.")
+
         host_port, database, username, password = extract_db_info(
             service_xml_path=service_xml_path,
             security_properties_path=security_properties_path)
+
+        default_system_biz_id = get_meta_instance(metadatadb_path, prj_id, select_columns=META_COLS.SYSTEM_BIZ_ID)
 
         # Define ingestion of converting work from duckdb(metadata) to Postgres(my dbms) configuration
         convert_qtrack_pipeline_config = {
@@ -63,6 +71,7 @@ def move_lineage(gms_server_url,prj_id):
                     },
                     "duckdb_path": lineage_path,
                     "prj_id": prj_id,
+                    "default_system_biz_id": default_system_biz_id,
                     "logger_path": os.path.join(engine_home,'logs'),
                     "target_config": {
                         "type": "postgres",
