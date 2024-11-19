@@ -36,12 +36,13 @@ def get_meta_instance(db_path: str, prj_id: str,  select_columns: Union[tuple[in
         if result is None:
             raise ValueError("collect job is not setting. please,complete setting.")
 
-            # 특정 컬럼만 반환
-        if select_columns is not None:
+        # select_columns가 단일 정수인 경우 처리
+        if isinstance(select_columns, int):
+            return (result[select_columns],)  # 단일 값을 튜플로 반환
+        # select_columns가 튜플인 경우 처리
+        elif select_columns is not None:
             return tuple(result[i] for i in select_columns)
-
         return result
-
     except ValueError:
         raise
     except Exception as e:
