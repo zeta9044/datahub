@@ -29,11 +29,6 @@ def create_ais0102(conn: Any):
                 query_type VARCHAR,
                 sql_obj_type VARCHAR,
                 table_urn VARCHAR,
-                system_biz_id VARCHAR,
-                system_tgt_srv_id VARCHAR,
-                owner_srv_id VARCHAR,
-                system_id VARCHAR,
-                biz_id VARCHAR,
                 PRIMARY KEY (prj_id, file_id, sql_id, table_id)
         )
     """)
