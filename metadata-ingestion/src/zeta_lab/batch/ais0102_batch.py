@@ -1,10 +1,9 @@
 from typing import List, Dict, Tuple
+
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.tool import (
-    NameUtil, get_system_biz_id, get_system_tgt_srv_id,
-    get_owner_srv_id, get_system_id,
-    get_biz_id, get_sql_obj_type)
 from zeta_lab.batch.batch_processor import DuckDBBatchProcessor
+from zeta_lab.utilities.tool import (
+    NameUtil, get_owner_srv_id, get_sql_obj_type)
 
 
 class AIS0102BatchProcessor(DuckDBBatchProcessor):
@@ -29,12 +28,6 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
         table = NameUtil.get_table_name(content)
         sql_obj_type = get_sql_obj_type(table)
 
-        # Extract properties
-        system_biz_id = get_system_biz_id(item['properties'])
-        system_tgt_srv_id = get_system_tgt_srv_id(item['properties'])
-        owner_srv_id = get_owner_srv_id(item['properties'])
-        system_id = get_system_id(item['properties'])
-        biz_id = get_biz_id(item['properties'])
 
         # Create tuple for insertion
         prepared_data.append((
@@ -46,12 +39,7 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
             int(item['query_custom_keys'].get('func_id', 0)),
             item['query_custom_keys'].get('query_type', ''),
             sql_obj_type,
-            item['urn'],
-            system_biz_id,
-            system_tgt_srv_id,
-            owner_srv_id,
-            system_id,
-            biz_id
+            item['urn']
         ))
 
         return prepared_data
@@ -61,10 +49,13 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
         try:
             self.connection.executemany("""
                 INSERT OR REPLACE INTO ais0102 
-                (prj_id, file_id, sql_id, table_id, obj_id, func_id, 
-                 query_type, sql_obj_type, table_urn, system_biz_id,
-                 system_tgt_srv_id, owner_srv_id, system_id, biz_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (
+                 prj_id, file_id, sql_id, table_id, obj_id, 
+                 func_id, query_type, sql_obj_type, table_urn
+                 )
+                VALUES (?, ?, ?, ?, ?,  
+                        ?, ?, ?, ?
+                        )
             """, chunk)
             return True
         except Exception as e:
