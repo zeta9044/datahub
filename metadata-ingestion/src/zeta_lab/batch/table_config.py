@@ -1,8 +1,11 @@
+from opcode import cmp_op
+
 from dataclasses import dataclass
 from typing import List, Any, Optional, Callable, Dict
 import logging
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from zeta_lab.utilities.tool import NameUtil
+
 
 @dataclass
 class ColumnMapping:
@@ -10,6 +13,7 @@ class ColumnMapping:
     source_name: str
     target_name: str
     transform_func: Optional[Callable] = None
+
 
 @dataclass
 class PostgresTableConfig:
@@ -23,6 +27,7 @@ class PostgresTableConfig:
     src_prj_id_idx: int = -1  # src_prj_id 컬럼 인덱스
     tgt_prj_id_idx: int = -1  # tgt_prj_id 컬럼 인덱스
 
+
 class TableConfigFactory:
     """테이블 설정 팩토리"""
 
@@ -30,25 +35,29 @@ class TableConfigFactory:
     def create_ais0102_config(duckdb_columns: List[str]) -> PostgresTableConfig:
         """AIS0102 테이블 설정 생성"""
 
-        def transform_query_type(value: str) -> str:
-            """쿼리 타입 변환"""
-            if not value:
-                return None
-            pg_query_type = value[0]
-            return 'C' if pg_query_type == 'I' else pg_query_type
+        def transform_query_type(row: Dict[str, Any]) -> str:
+            """
+            :param duckdb_columns: List of column names from DuckDB that need to be configured for PostgreSQL.
+            :return: A PostgreSQL table configuration object.
 
-        def transform_sql_state(value: str) -> str:
-            """SQL 상태 변환"""
-            if not value:
-                return None
-            sql_state_map = {
-                'C': 'INSERT',
-                'S': 'SELECT',
-                'I': 'INSERT',
-                'U': 'UPDATE',
-                'D': 'DELETE'
+
+            """
+            sql_type_map = {
+                'INSERT': 'C',
+                'COPY': 'C',
+                'CREATE': 'C',
+                'SELECT': 'R',
+                'UPDATE': 'U',
+                'MERGE': 'U',
+                'DELETE': 'D',
+                'DROP': 'D',
+                'TRUNCATE': 'D'
             }
-            return sql_state_map.get(value[0], None)
+            compared_value = row.get('query_type', 'N').upper()
+            for key, single_char in sql_type_map.items():
+                if compared_value.startswith(key):
+                    return single_char
+            return compared_value
 
         def extract_from_urn(row: Dict[str, Any], field: str) -> str:
             """URN에서 필드 추출"""
@@ -89,14 +98,15 @@ class TableConfigFactory:
                           lambda row: extract_from_urn(row, 'caps_table_name')),
             ColumnMapping('table_urn', 'owner_name',
                           lambda row: extract_from_urn(row, 'owner_name')),
-            ColumnMapping('query_type', 'query_type', transform_query_type),
+            ColumnMapping('query_type', 'query_type',
+                          lambda row: transform_query_type(row)),
             ColumnMapping(None, 'query_line_no', lambda _: None),
             ColumnMapping('sql_obj_type', 'sql_obj_type'),
             ColumnMapping(None, 'inlineview_yn', lambda _: None),
             ColumnMapping(None, 'dblink_name', lambda _: None),
             ColumnMapping(None, 'table_alias_name', lambda _: None),
             ColumnMapping(None, 'inlineview_src', lambda _: None),
-            ColumnMapping('query_type', 'sql_state', transform_sql_state),
+            ColumnMapping(None, 'sql_state', lambda _: None),
             ColumnMapping(None, 'column_no', lambda _: None),
             ColumnMapping(None, 'table_depth', lambda _: None),
             ColumnMapping(None, 'table_order_no', lambda _: None),
