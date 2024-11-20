@@ -103,7 +103,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
                 col_order_no,  # adj_col_order_no
                 call_col_order_no,  # call_adj_col_order_no
                 1,  # cond_mapping
-                'ingest_cli',  # data_maker
+                None,  # data_maker
                 ''  # mapping_kind
             )]
 
