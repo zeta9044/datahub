@@ -1,20 +1,23 @@
 import os
+import logging
 
 from zeta_lab.utilities.tool import get_server_pid
-from zeta_lab.utilities.common_logger import setup_logging, cleanup_logger
 from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
 from datahub.ingestion.run.pipeline import Pipeline
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
+)
+logger = logging.getLogger(__name__)
 
-def extract_lineage(gms_server_url, prj_id, log_file=None):
+def extract_lineage(gms_server_url, prj_id):
     """
     :param gms_server_url: The URL of the GMS server to be checked for availability.
     :param prj_id: The project ID whose repository and sqlsrc.json file are required for lineage extraction.
-    :param log_file: Optional log file path. Defaults to {prj_id}_run.out if not specified.
     :return: None
     """
-    log_file = log_file if log_file else f"{prj_id}_run.out"
-    logger = setup_logging(log_file, __name__)
 
     try:
         # check alive of gms_server
@@ -46,7 +49,8 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
         platform, platform_instance, default_db, default_schema = get_meta_instance(
             metadatadb_path,
             prj_id,
-            select_columns=(META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
+            select_columns=(
+            META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
         )
         logger.info(f"platform:{platform}")
         logger.info(f"platform_instance:{platform_instance}")
@@ -104,15 +108,3 @@ def extract_lineage(gms_server_url, prj_id, log_file=None):
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}", exc_info=True)
         raise
-    finally:
-        cleanup_logger(logger)
-
-
-if __name__ == "__main__":
-    # example
-    gms_server_url = "http://localhost:8000"
-    prj_id = 21
-    try:
-        extract_lineage(gms_server_url=gms_server_url, prj_id=prj_id)
-    except Exception as e:
-        print(e)

@@ -1,10 +1,17 @@
 import os
-
-from zeta_lab.utilities.tool import extract_db_info,get_server_pid
+import logging
+from zeta_lab.utilities.tool import extract_db_info, get_server_pid
 from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
 from datahub.ingestion.run.pipeline import Pipeline
 
-def move_lineage(gms_server_url,prj_id):
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
+)
+
+
+def move_lineage(gms_server_url, prj_id):
     """
     :param gms_server_url: The URL of the GMS server to be checked for availability.
     :param prj_id: The project ID whose repository and sqlsrc.json file are required for lineage extraction.
@@ -22,30 +29,30 @@ def move_lineage(gms_server_url,prj_id):
         engine_home = os.getenv("LIAENG_HOME")
         if not engine_home:
             raise ValueError("Please define environment variable 'LIAENG_HOME' to your local Lia Engine home path.")
-        config_path = os.path.join(engine_home,'config')
+        config_path = os.path.join(engine_home, 'config')
         if not os.path.exists(config_path):
             raise ValueError("Config path does not exist.")
 
         # service.xml path
-        service_xml_path = os.path.join(config_path,'service.xml')
+        service_xml_path = os.path.join(config_path, 'service.xml')
         if not os.path.exists(service_xml_path):
             raise ValueError("service.xml file does not exist.")
 
         # security.properties path
-        security_properties_path = os.path.join(config_path,'security.properties')
+        security_properties_path = os.path.join(config_path, 'security.properties')
         if not os.path.exists(security_properties_path):
             raise ValueError("security.properties file does not exist.")
 
         # repository path
-        repo_path = os.path.join(engine_home,'repositorys')
+        repo_path = os.path.join(engine_home, 'repositorys')
         if not os.path.exists(repo_path):
             raise ValueError("Repository path does not exist.")
-        prj_repo_path = os.path.join(repo_path,str(prj_id))
+        prj_repo_path = os.path.join(repo_path, str(prj_id))
         if not os.path.exists(prj_repo_path):
             raise ValueError(f"Project {prj_id} repository path does not exist.")
 
         # lineage.db path
-        lineage_path = os.path.join(prj_repo_path,'lineage.db')
+        lineage_path = os.path.join(prj_repo_path, 'lineage.db')
         if not os.path.exists(lineage_path):
             raise ValueError("lineage.db file does not exist.")
 
@@ -72,7 +79,7 @@ def move_lineage(gms_server_url,prj_id):
                     "duckdb_path": lineage_path,
                     "prj_id": prj_id,
                     "system_biz_id": system_biz_id,
-                    "logger_path": os.path.join(engine_home,'logs'),
+                    "logger_path": os.path.join(engine_home, 'logs'),
                     "target_config": {
                         "type": "postgres",
                         "host_port": host_port,
@@ -94,11 +101,12 @@ def move_lineage(gms_server_url,prj_id):
     except Exception as e:
         raise
 
+
 if __name__ == "__main__":
     # example
     gms_server_url = "http://localhost:8000"
     prj_id = 21
     try:
-        move_lineage(gms_server_url=gms_server_url,prj_id=prj_id)
+        move_lineage(gms_server_url=gms_server_url, prj_id=prj_id)
     except Exception as e:
         print(e)

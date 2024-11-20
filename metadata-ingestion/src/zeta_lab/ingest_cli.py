@@ -131,9 +131,9 @@ def load_config(ctx, config_file=None):
             if 'log_level' in loaded_config:
                 loaded_config['log_level'] = loaded_config['log_level'].upper()
             config.update(loaded_config)
-        logging.info(f"Loaded configuration from {config_file}")
+        logger.info(f"Loaded configuration from {config_file}")
     else:
-        logging.info("Configuration file not found. Using default settings.")
+        logger.info("Configuration file not found. Using default settings.")
 
     ctx.obj['config_file'] = config_file
     ctx.obj['config'] = config
@@ -157,7 +157,7 @@ def save_config(ctx):
 
     with open(config_file, 'w') as f:
         json.dump(ctx.obj['config'], f, indent=2)
-    logging.info(f"Saved configuration to {config_file}")
+    logger.info(f"Saved configuration to {config_file}")
 
 @click.group()
 @click.option('--config-file', type=click.Path(exists=True), help="Path to the configuration file")
@@ -208,7 +208,7 @@ def start(ctx):
     base_path = get_base_path()
     exec_path = find_executable(base_path)
 
-    logging.info(f"exec_path is {exec_path}")
+    logger.info(f"exec_path is {exec_path}")
 
     if not exec_path:
         click.echo("Error: async_lite_gms executable or script not found.")
@@ -255,14 +255,14 @@ def start(ctx):
         pid_file_path = ctx.obj['config']['pid_file']
         with open(pid_file_path, 'w') as pid_file:
             pid_file.write(str(process.pid))
-        logging.info(f"Server PID {process.pid} written to {pid_file_path}")
+        logger.info(f"Server PID {process.pid} written to {pid_file_path}")
 
         # 서버 시작 대기 및 상태 체크
         max_retries = 30  # 최대 30초 대기
         server_ready = False
 
         for i in range(max_retries):
-            logging.info(f"Server is starting... {i+1} s")
+            logger.info(f"Server is starting... {i+1} s")
             time.sleep(1)
 
             # PID 파일에서 PID 읽기
@@ -274,7 +274,7 @@ def start(ctx):
             if not is_process_running(current_pid):
                 # 프로세스가 종료됨
                 click.echo("Server process has terminated unexpectedly.")
-                logging.error("Server process has terminated unexpectedly.")
+                logger.error("Server process has terminated unexpectedly.")
                 stdout_log.close()
                 stderr_log.close()
                 return
@@ -291,10 +291,10 @@ def start(ctx):
 
         if server_ready:
             click.echo("Server started successfully and is ready to accept requests.")
-            logging.info("Server started successfully and is ready to accept requests.")
+            logger.info("Server started successfully and is ready to accept requests.")
         else:
             click.echo("Server started but failed to respond to health check.")
-            logging.error("Server started but failed to respond to health check.")
+            logger.error("Server started but failed to respond to health check.")
             # 서버 프로세스를 종료
             try:
                 if sys.platform == 'win32':
@@ -302,13 +302,13 @@ def start(ctx):
                 else:
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                 click.echo("Server process has been terminated due to failed health check.")
-                logging.info("Server process has been terminated due to failed health check.")
+                logger.info("Server process has been terminated due to failed health check.")
             except Exception as e:
                 click.echo(f"Failed to terminate server process: {str(e)}")
-                logging.error(f"Failed to terminate server process: {str(e)}")
+                logger.error(f"Failed to terminate server process: {str(e)}")
     except Exception as e:
         click.echo(f"Error starting server: {str(e)}")
-        logging.error(f"Error starting server: {str(e)}")
+        logger.error(f"Error starting server: {str(e)}")
     finally:
         stdout_log.close()
         stderr_log.close()
@@ -360,17 +360,17 @@ def stop(ctx):
         else:
             os.kill(pid, signal.SIGTERM)
         click.echo(f"Server (PID: {pid}) has been stopped.")
-        logging.info(f"Server (PID: {pid}) has been stopped.")
+        logger.info(f"Server (PID: {pid}) has been stopped.")
 
         # PID 파일 삭제
         pid_file_path = ctx.obj['config']['pid_file']
         if os.path.exists(pid_file_path):
             os.remove(pid_file_path)
-            logging.info(f"PID file {pid_file_path} removed.")
+            logger.info(f"PID file {pid_file_path} removed.")
 
     except (subprocess.CalledProcessError, ProcessLookupError) as e:
         click.echo(f"Failed to stop the server. Error: {str(e)}")
-        logging.error(f"Failed to stop the server. Error: {str(e)}")
+        logger.error(f"Failed to stop the server. Error: {str(e)}")
 
 
 @gms.command()
@@ -388,7 +388,7 @@ def logs(ctx):
     """Show GMS server logs."""
     if not os.path.exists(ctx.obj['config']['log_file']):
         click.echo(f"Log file {ctx.obj['config']['log_file']} not found.")
-        logging.error(f"Log file {ctx.obj['config']['log_file']} not found.")
+        logger.error(f"Log file {ctx.obj['config']['log_file']} not found.")
         return
 
     def print_logs():
@@ -409,10 +409,10 @@ def logs(ctx):
                         time.sleep(0.1)
         except Exception as e:
             click.echo(f"Error reading log file: {str(e)}")
-            logging.error(f"Error reading log file: {str(e)}")
+            logger.error(f"Error reading log file: {str(e)}")
 
     click.echo("Showing logs. Press Enter to stop.")
-    logging.debug("Starting to show logs")
+    logger.debug("Starting to show logs")
 
     stop_event = threading.Event()
     log_thread = threading.Thread(target=print_logs)
@@ -424,7 +424,7 @@ def logs(ctx):
     finally:
         stop_event.set()
         click.echo("Stopped showing logs.")
-        logging.debug("Stopped showing logs")
+        logger.debug("Stopped showing logs")
 
 
 @gms.command()
@@ -446,7 +446,7 @@ def status(ctx):
             click.echo(f"Server is running (PID: {pid}), but health check failed.")
     except requests.RequestException as e:
         click.echo(f"Server is running (PID: {pid}), but health check failed to connect. Error: {str(e)}")
-        logging.error(f"Health check failed. Error: {str(e)}")
+        logger.error(f"Health check failed. Error: {str(e)}")
 
 
 @gms.command()
@@ -505,7 +505,7 @@ def ingest(gms):
         click.echo("Metadata ingestion completed successfully.")
     except Exception as e:
         click.echo(f"Error during metadata ingestion: {str(e)}")
-        logging.error(f"Error during metadata ingestion: {str(e)}")
+        logger.error(f"Error during metadata ingestion: {str(e)}")
 
 
 @cli.command()

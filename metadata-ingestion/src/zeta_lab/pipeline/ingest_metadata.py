@@ -3,6 +3,11 @@ import logging
 from zeta_lab.utilities.tool import extract_dsn_from_xml_file,get_server_pid
 from datahub.ingestion.run.pipeline import Pipeline
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
+)
 logger = logging.getLogger(__name__)
 
 def ingest_metadata(gms_server_url):
@@ -71,11 +76,3 @@ def ingest_metadata(gms_server_url):
         pipeline.raise_from_status()
     except Exception as e:
         raise
-
-if __name__ == "__main__":
-    # example
-    gms_server_url = "http://localhost:8000"
-    try:
-        ingest_metadata(gms_server_url=gms_server_url)
-    except Exception as e:
-        print(e)
