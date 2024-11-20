@@ -16,14 +16,13 @@ from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata._urns.urn_defs import SchemaFieldUrn
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.batch.postgres_transfer import PartitionedTransferManager
-from zeta_lab.batch.table_config import TableConfigFactory, PostgresTableConfig
 from zeta_lab.batch.ais0102_batch import AIS0102BatchProcessor
 from zeta_lab.batch.ais0113_batch import AIS0113BatchProcessor
 from zeta_lab.batch.batch_processor import BatchConfig
+from zeta_lab.batch.postgres_transfer import PartitionedTransferManager
+from zeta_lab.batch.table_populator import TablePopulatorConfig, OptimizedTablePopulator
 from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
 from zeta_lab.utilities.tool import NameUtil
-from zeta_lab.batch.table_populator import TablePopulatorConfig, OptimizedTablePopulator
 
 
 class ConvertQtrackSource(Source):
