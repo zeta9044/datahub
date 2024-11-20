@@ -53,8 +53,7 @@ framework_common = {
     "jsonref",
     "jsonschema",
     "ruamel.yaml",
-    "pyinstaller==6.1.0",
-    "asyncpg"
+    "pyinstaller==6.1.0"
 }
 
 pydantic_no_v2 = {
@@ -77,7 +76,7 @@ kafka_common = {
     # now provide prebuilt wheels for most platforms, including M1 Macs and
     # Linux aarch64 (e.g. Docker's linux/arm64). Installing confluent_kafka
     # from source remains a pain.
-    "confluent_kafka>=1.9.0",
+    "confluent_kafka>=1.9.0,<2.6.1",
     # We currently require both Avro libraries. The codegen uses avro-python3 (above)
     # schema parsers at runtime for generating and reading JSON into Python objects.
     # At the same time, we use Kafka's AvroSerializer, which internally relies on
