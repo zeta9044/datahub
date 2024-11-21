@@ -340,10 +340,6 @@ class ConvertQtrackSource(Source):
         logger.info("Deleting existing records from target tables")
 
         delete_queries = [
-            "DELETE FROM ais0102 WHERE prj_id = %s",
-            "DELETE FROM ais0103 WHERE prj_id = %s",
-            "DELETE FROM ais0112 WHERE prj_id = %s",
-            "DELETE FROM ais0113 WHERE prj_id = %s",
             "DELETE FROM ais0080 WHERE src_prj_id = %s",
             "DELETE FROM ais0081 WHERE src_prj_id = %s"
         ]
@@ -361,7 +357,7 @@ class ConvertQtrackSource(Source):
                         logger.debug(f"Deleted {deleted_rows} rows using query: {query}")
 
                     conn.commit()
-                    logger.info(f"Successfully deleted existing records of prj_id({prj_id}) from ais0102,ais0103,ais0112,ais0113,ais0080 and ais0081")
+                    logger.info(f"Successfully deleted existing records of prj_id({prj_id}) from ais0080 and ais0081")
                 finally:
                     cur.close()
             except Exception as e:
