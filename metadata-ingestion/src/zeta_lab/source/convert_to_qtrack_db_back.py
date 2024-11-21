@@ -345,14 +345,14 @@ class ConvertQtrackSource(Source):
             upstream_sql_obj_type = get_sql_obj_type(upstream_table)
             upstream_unique_owner = NameUtil.get_unique_owner_name(upstream_content).upper()
             upstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(upstream_content).upper()
-            upstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(upstream_properties)
+            upstream_system_biz_id = self.system_biz_id if self.system_biz_id else get_system_biz_id(upstream_properties)
 
             downstream_owner = NameUtil.get_schema(downstream_content).upper()
             downstream_table = NameUtil.get_table_name(downstream_content)
             downstream_sql_obj_type = get_sql_obj_type(downstream_table)
             downstream_unique_owner = NameUtil.get_unique_owner_name(downstream_content).upper()
             downstream_unique_owner_tgt_srv_id = NameUtil.get_unique_owner_tgt_srv_id(downstream_content).upper()
-            downstream_system_biz_id = self.system_biz_id if not self.system_biz_id else get_system_biz_id(downstream_properties)
+            downstream_system_biz_id = self.system_biz_id if self.system_biz_id else get_system_biz_id(downstream_properties)
 
             # 컬럼 순서 가져오기
             upstream_col_order_no = self.get_next_column_order(upstream_urn)
