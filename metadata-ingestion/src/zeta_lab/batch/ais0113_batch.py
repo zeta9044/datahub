@@ -1,9 +1,9 @@
 from typing import List, Dict, Tuple
 
 from datahub.utilities.urns.dataset_urn import DatasetUrn
-from zeta_lab.utilities.tool import (
-    NameUtil, get_system_biz_id, get_sql_obj_type)
 from zeta_lab.batch.batch_processor import DuckDBBatchProcessor
+from zeta_lab.utilities.tool import (
+    NameUtil, get_sql_obj_type)
 
 
 class AIS0113BatchProcessor(DuckDBBatchProcessor):
@@ -77,7 +77,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
                 upstream_col['name'].upper(),
                 upstream_unique_owner,
                 upstream_unique_owner_tgt_srv_id,
-                upstream['properties'].get('system_biz_id','[owner_undefined]'),
+                upstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
                 query_custom_keys.get('prj_id', ''),
                 int(query_custom_keys.get('file_id', 0)),
                 int(query_custom_keys.get('sql_id', 0)),
@@ -97,7 +97,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
                 downstream_col['name'].upper(),
                 downstream_unique_owner,
                 downstream_unique_owner_tgt_srv_id,
-                downstream['properties'].get('system_biz_id','[owner_undefined]'),
+                downstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
                 col_order_no,
                 call_col_order_no,
                 col_order_no,  # adj_col_order_no
