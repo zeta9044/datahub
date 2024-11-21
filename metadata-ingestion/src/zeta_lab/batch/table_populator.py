@@ -108,7 +108,7 @@ class OptimizedTablePopulator:
                     NULL::VARCHAR as col_name,        -- 8
                     NULL::VARCHAR as col_use_type,    -- 9
                     NULL::VARCHAR as col_alias_yn,    -- 10
-                    NULL::VARCHAR as col_name_src,    -- 11
+                    t.caps_col_name::VARCHAR as col_name_src,    -- 11
                     NULL::VARCHAR as table_alias_name,-- 12
                     NULL::INTEGER as query_line_no,   -- 13
                     NULL::INTEGER as column_no,       -- 14
