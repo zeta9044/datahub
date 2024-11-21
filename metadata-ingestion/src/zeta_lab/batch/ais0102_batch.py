@@ -40,7 +40,7 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
             item['query_custom_keys'].get('query_type', ''),
             sql_obj_type,
             item['urn'],
-            item['properties'].get('system_biz_id','[owner_undefined]')
+            item['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
         ))
 
         return prepared_data
