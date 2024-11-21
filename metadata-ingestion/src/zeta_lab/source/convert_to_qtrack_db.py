@@ -19,6 +19,7 @@ from zeta_lab.batch.batch_processor import BatchConfig
 from zeta_lab.batch.postgres_transfer import PartitionedTransferManager
 from zeta_lab.batch.table_populator import TablePopulatorConfig, OptimizedTablePopulator
 from zeta_lab.utilities.qtrack_db import create_duckdb_tables, check_postgres_tables_exist
+from zeta_lab.utilities.tool import create_default_dataset_properties
 
 # Set up logging
 logging.basicConfig(
@@ -183,7 +184,7 @@ class ConvertQtrackSource(Source):
         # 기본 구조 초기화
         downstream_info = {
             'urn': downstream_urn,
-            'properties': self.get_dataset_properties(downstream_urn) or {"system_biz_id": self.system_biz_id},
+            'properties': self.get_dataset_properties(downstream_urn) or create_default_dataset_properties(self.system_biz_id[0], downstream_urn),
             'table_id': self.get_table_id(downstream_urn)
         }
 
@@ -199,7 +200,7 @@ class ConvertQtrackSource(Source):
             upstream_table_id = self.get_table_id(upstream_urn)
             upstream_data = {
                 'urn': upstream_urn,
-                'properties': self.get_dataset_properties(upstream_urn) or {"system_biz_id": self.system_biz_id},
+                'properties': self.get_dataset_properties(upstream_urn) or create_default_dataset_properties(self.system_biz_id[0], upstream_urn),
                 'table_id': upstream_table_id,
                 'query_custom_keys': upstream.get('query_custom_keys', {})
             }
