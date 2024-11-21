@@ -183,7 +183,7 @@ class ConvertQtrackSource(Source):
         # 기본 구조 초기화
         downstream_info = {
             'urn': downstream_urn,
-            'properties': self.get_dataset_properties(downstream_urn),
+            'properties': self.get_dataset_properties(downstream_urn) or {"system_biz_id": self.system_biz_id},
             'table_id': self.get_table_id(downstream_urn)
         }
 
@@ -199,7 +199,7 @@ class ConvertQtrackSource(Source):
             upstream_table_id = self.get_table_id(upstream_urn)
             upstream_data = {
                 'urn': upstream_urn,
-                'properties': self.get_dataset_properties(upstream_urn),
+                'properties': self.get_dataset_properties(upstream_urn) or {"system_biz_id": self.system_biz_id},
                 'table_id': upstream_table_id,
                 'query_custom_keys': upstream.get('query_custom_keys', {})
             }
