@@ -146,7 +146,7 @@ class ConvertQtrackSource(Source):
         logger.info(f"Completed pre-patch of {len(results)} downstream_urn from gms server for {minutes} min {seconds:.2f} sec.")
 
         start_time = time.time()
-        for index, row in enumerate(results):
+        for row in results:
             downstream_urn = row[0]
             metadata = eval(row[1])  # Assuming metadata is stored as a string representation of a dict
             self.process_lineage(downstream_urn, metadata)
