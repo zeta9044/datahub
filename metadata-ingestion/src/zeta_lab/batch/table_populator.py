@@ -68,7 +68,17 @@ class OptimizedTablePopulator:
 
             # 기존 데이터 삭제 및 새 데이터 삽입
             self.conn.execute(f"DELETE FROM {table_name}")
-            self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM {temp_table}")
+
+            # 먼저 테이블의 컬럼 정보를 조회
+            columns = self.conn.execute(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY ordinal_position").fetchall()
+            column_names = [col[0] for col in columns]
+
+            # 컬럼 이름들을 쉼표로 구분하여 문자열로 만듦
+            columns_str = ", ".join(column_names)
+
+            # INSERT 쿼리에 컬럼을 명시적으로 지정
+            self.conn.execute(f"INSERT INTO {table_name} ({columns_str}) SELECT {columns_str} FROM {temp_table}")
+            # self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM {temp_table}")
 
             # 임시 테이블 정리
             self.conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
@@ -88,11 +98,11 @@ class OptimizedTablePopulator:
         """AIS0103 테이블 적재 - 정확한 컬럼 순서로 매핑"""
         query = """
                 SELECT DISTINCT
-                    t.prj_id::VARCHAR,                -- 1
-                    t.file_id::INTEGER,               -- 2
-                    t.sql_id::INTEGER,                -- 3
-                    t.table_id::INTEGER,              -- 4
-                    t.col_id::INTEGER,                -- 5
+                    t.prj_id::VARCHAR as prj_id,      -- 1
+                    t.file_id::INTEGER as file_id,    -- 2
+                    t.sql_id::INTEGER as sql_id,      -- 3
+                    t.table_id::INTEGER as table_id,  -- 4
+                    t.col_id::INTEGER as col_id,      -- 5
                     NULL::INTEGER as obj_id,          -- 6
                     NULL::INTEGER as func_id,         -- 7
                     NULL::VARCHAR as col_name,        -- 8
@@ -115,7 +125,7 @@ class OptimizedTablePopulator:
                     NULL::INTEGER as fmt_end_pos,     -- 25
                     NULL::VARCHAR as fmt_type,        -- 26
                     NULL::INTEGER as adjust_col_order_no, -- 27
-                    t.caps_col_name::VARCHAR,         -- 28
+                    t.caps_col_name::VARCHAR as caps_col_name,         -- 28
                     NULL::INTEGER as fl_tbl_uid       -- 29
                 FROM (
                     SELECT 

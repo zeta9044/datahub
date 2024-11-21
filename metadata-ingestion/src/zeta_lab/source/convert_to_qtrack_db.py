@@ -358,10 +358,10 @@ class ConvertQtrackSource(Source):
                     for query in delete_queries:
                         cur.execute(query, (prj_id,))
                         deleted_rows = cur.rowcount
-                        logger.info(f"Deleted {deleted_rows} rows using query: {query}")
+                        logger.debug(f"Deleted {deleted_rows} rows using query: {query}")
 
                     conn.commit()
-                    logger.info("Successfully deleted existing records from ais0080 and ais0081")
+                    logger.info(f"Successfully deleted existing records of prj_id({prj_id}) from ais0102,ais0103,ais0112,ais0113,ais0080 and ais0081")
                 finally:
                     cur.close()
             except Exception as e:
