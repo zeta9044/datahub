@@ -119,7 +119,7 @@ class TableConfigFactory:
             ColumnMapping('table_urn', 'unique_owner_tgt_srv_id',
                           lambda row: extract_from_urn(row, 'unique_owner_tgt_srv_id')),
             ColumnMapping(None, 'sql_name', lambda _: None),
-            ColumnMapping(None, 'system_biz_id', lambda _: None),
+            ColumnMapping('system_biz_id', 'system_biz_id'),
             ColumnMapping(None, 'fl_tbl_uid', lambda _: None)
         ]
 
