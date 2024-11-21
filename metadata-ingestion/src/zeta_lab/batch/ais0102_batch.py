@@ -39,7 +39,8 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
             int(item['query_custom_keys'].get('func_id', 0)),
             item['query_custom_keys'].get('query_type', ''),
             sql_obj_type,
-            item['urn']
+            item['urn'],
+            item['properties'].get('system_biz_id','[owner_undefined]')
         ))
 
         return prepared_data
@@ -51,10 +52,10 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
                 INSERT OR REPLACE INTO ais0102 
                 (
                  prj_id, file_id, sql_id, table_id, obj_id, 
-                 func_id, query_type, sql_obj_type, table_urn
+                 func_id, query_type, sql_obj_type, table_urn, system_biz_id
                  )
                 VALUES (?, ?, ?, ?, ?,  
-                        ?, ?, ?, ?
+                        ?, ?, ?, ?, ?
                         )
             """, chunk)
             return True
