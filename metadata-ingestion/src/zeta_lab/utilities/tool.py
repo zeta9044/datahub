@@ -1,11 +1,12 @@
 import logging
 import re
 import time
-import chardet
+import xml.etree.ElementTree as ET
 from functools import wraps
 
+import chardet
 import psutil
-from datahub.cli.specific.dataset_cli import dataset
+
 from datahub.metadata._urns.urn_defs import DatasetUrn
 from datahub.metadata.schema_classes import (
     SchemaFieldDataTypeClass,
@@ -21,7 +22,6 @@ from datahub.metadata.schema_classes import (
     UnionTypeClass,
     RecordTypeClass
 )
-import xml.etree.ElementTree as ET
 from zeta_lab.utilities.decrypt_file import DecryptFile
 
 logger = logging.getLogger(__name__)
@@ -512,3 +512,41 @@ def get_server_pid():
         elif 'async_lite_gms' in proc.info['name'].lower():
             return proc.info['pid']
     return None
+
+def extract_name_from_urn(urn: str) -> str:
+    # URN을 콤마로 분리
+    parts = urn.split(',')
+
+    # 데이터셋 이름 추출
+    if len(parts) > 1:
+        dataset_name = parts[1]
+        return dataset_name
+    else:
+        raise ValueError("Unable to extract dataset name from URN.")
+
+
+def create_default_dataset_properties(system_biz_id:str, dataset_urn:str):
+    return {
+        'aspect': {
+            'datasetProperties': {
+                'customProperties': {
+                    'system_biz_id': system_biz_id,
+                    'system_id': system_biz_id.split('_')[0],
+                    'biz_id': system_biz_id.split('_')[1],
+                    'owner_srv_id': extract_name_from_urn(dataset_urn).split('.')[0]
+                },
+                'description': '',
+                'name': extract_name_from_urn(dataset_urn),  # URN에서 이름 추출
+                'tags': []
+            }
+        },
+        'systemMetadata': {
+            'lastObserved': 0,
+            'lastRunId': 'no-run-id-provided',
+            'properties': {
+                'clientId': 'acryl-datahub',
+                'clientVersion': '1!0.0.0.dev0'
+            },
+            'runId': 'no-run-id-provided'
+        }
+    }
