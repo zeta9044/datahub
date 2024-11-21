@@ -77,7 +77,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
                 upstream_col['name'].upper(),
                 upstream_unique_owner,
                 upstream_unique_owner_tgt_srv_id,
-                get_system_biz_id(upstream['properties']),
+                upstream['properties'].get('system_biz_id','[owner_undefined]'),
                 query_custom_keys.get('prj_id', ''),
                 int(query_custom_keys.get('file_id', 0)),
                 int(query_custom_keys.get('sql_id', 0)),
@@ -97,7 +97,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
                 downstream_col['name'].upper(),
                 downstream_unique_owner,
                 downstream_unique_owner_tgt_srv_id,
-                get_system_biz_id(downstream['properties']),
+                downstream['properties'].get('system_biz_id','[owner_undefined]'),
                 col_order_no,
                 call_col_order_no,
                 col_order_no,  # adj_col_order_no
