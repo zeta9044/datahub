@@ -75,4 +75,4 @@ def ingest_metadata(gms_server_url):
         pipeline.run()
         pipeline.raise_from_status()
     except Exception as e:
-        raise
+        logger.error(f"Error occurred: {str(e)}", exc_info=True)

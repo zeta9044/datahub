@@ -10,6 +10,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
 )
 
+logger = logging.getLogger(__name__)
 
 def move_lineage(gms_server_url, prj_id):
     """
@@ -99,14 +100,4 @@ def move_lineage(gms_server_url, prj_id):
         pipeline.run()
         pipeline.raise_from_status()
     except Exception as e:
-        raise
-
-
-if __name__ == "__main__":
-    # example
-    gms_server_url = "http://localhost:8000"
-    prj_id = 21
-    try:
-        move_lineage(gms_server_url=gms_server_url, prj_id=prj_id)
-    except Exception as e:
-        print(e)
+        logger.error(f"Error occurred: {str(e)}", exc_info=True)

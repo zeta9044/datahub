@@ -59,4 +59,3 @@ def make_sqlsrc(prj_id):
 
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}", exc_info=True)
-        raise
