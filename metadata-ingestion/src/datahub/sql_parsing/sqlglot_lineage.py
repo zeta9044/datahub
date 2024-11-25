@@ -457,111 +457,139 @@ def _create_table_ddl_cll(
     return column_lineage
 
 
-def _select_statement_cll(  # noqa: C901
-    statement: _SupportedColumnLineageTypes,
-    dialect: sqlglot.Dialect,
-    root_scope: sqlglot.optimizer.Scope,
-    column_resolver: _ColumnResolver,
-    output_table: Optional[_TableName],
-    original_statement: sqlglot.exp.Expression
+def _select_statement_cll(
+        statement: _SupportedColumnLineageTypes,
+        dialect: sqlglot.Dialect,
+        root_scope: sqlglot.optimizer.Scope,
+        column_resolver: _ColumnResolver,
+        output_table: Optional[_TableName],
+        original_statement: sqlglot.exp.Expression
 ) -> List[_ColumnLineageInfo]:
-    column_lineage: List[_ColumnLineageInfo] = []
-    is_column_specified = False
-    insert_columns: List[str] = []
-    if isinstance(original_statement,sqlglot.exp.Insert):
-        is_column_specified, insert_columns = extract_insert_target_columns(original_statement)
     try:
-        # List output columns.
-        output_columns = [
-            (index,select_col.alias_or_name, select_col) for index,select_col in enumerate(statement.selects)
-        ]
-        logger.debug("output columns: %s", [col[0] for col in output_columns])
-        for index,output_col, original_col_expression in output_columns:
-            if not output_col or output_col == "*":
-                # If schema information is available, the * will be expanded to the actual columns.
-                # Otherwise, we can't process it.
-                continue
+        logger.debug("Starting column lineage generation")
+        column_lineage: List[_ColumnLineageInfo] = []
 
-            if is_dialect_instance(dialect, "bigquery") and output_col.lower() in {
-                "_partitiontime",
-                "_partitiondate",
-            }:
-                # These are not real columns, just a way to filter by partition.
-                # TODO: We should add these columns to the schema info instead.
-                # Once that's done, we should actually generate lineage for these
-                # if they appear in the output.
-                continue
+        # INSERT 컬럼 처리
+        is_column_specified = False
+        insert_columns: List[str] = []
+        if isinstance(original_statement, sqlglot.exp.Insert):
+            try:
+                is_column_specified, insert_columns = extract_insert_target_columns(original_statement)
+                if is_column_specified:
+                    logger.debug(f"Found specified INSERT columns: {insert_columns}")
+            except Exception as e:
+                logger.debug(f"Failed to extract INSERT columns: {e}")
+                is_column_specified = False
 
-            lineage_node = sqlglot.lineage.lineage(
-                output_col,
-                statement,
-                dialect=dialect,
-                scope=root_scope,
-                trim_selects=False,
-                # We don't need to pass the schema in here, since we've already qualified the columns.
-            )
-            # import pathlib
-            # pathlib.Path("sqlglot.html").write_text(
-            #     str(lineage_node.to_html(dialect=dialect))
-            # )
+        # 출력 컬럼 확장
+        try:
+            output_columns = []
+            for index, select_col in enumerate(statement.selects):
+                try:
+                    if not select_col.alias_or_name or select_col.alias_or_name == "*":
+                        logger.debug(f"Expanding star column at index {index}")
+                        expanded_cols = _expand_star_column(select_col, root_scope, column_resolver)
+                        logger.debug(f"Got {len(expanded_cols)} expanded columns")
 
-            # Generate SELECT lineage.
-            direct_raw_col_upstreams = _get_direct_raw_col_upstreams(lineage_node)
+                        for i, expanded_col in enumerate(expanded_cols):
+                            output_columns.append((
+                                index + i,
+                                expanded_col.alias_or_name or expanded_col.this.name,
+                                expanded_col
+                            ))
+                    else:
+                        output_columns.append((
+                            index,
+                            select_col.alias_or_name,
+                            select_col
+                        ))
+                except Exception as e:
+                    logger.debug(f"Failed to process column at index {index}: {e}")
+                    continue
 
-            # column_logic = lineage_node.source
+            logger.debug(f"Processed {len(output_columns)} total output columns")
 
-            # Fuzzy resolve the output column.
-            original_col_expression = lineage_node.expression
-            if output_col.startswith("_col_"):
-                # This is the format sqlglot uses for unnamed columns e.g. 'count(id)' -> 'count(id) AS _col_0'
-                # This is a bit jank since we're relying on sqlglot internals, but it seems to be
-                # the best way to do it.
-                output_col = original_col_expression.this.sql(dialect=dialect)
+            # Bigquery 특수 컬럼 처리
+            if is_dialect_instance(dialect, "bigquery"):
+                output_columns = [
+                    (i, col, expr) for i, col, expr in output_columns
+                    if not col.lower() in {"_partitiontime", "_partitiondate"}
+                ]
 
-            output_col = column_resolver.schema_aware_fuzzy_column_resolve(
-                output_table, output_col
-            )
+            # 각 컬럼의 lineage 생성
+            success_count = 0
+            for index, output_col, original_col_expression in output_columns:
+                try:
+                    lineage_node = sqlglot.lineage.lineage(
+                        output_col,
+                        statement,
+                        dialect=dialect,
+                        scope=root_scope,
+                        trim_selects=False,
+                    )
 
-            # Guess the output column type.
-            output_col_type = None
-            if original_col_expression.type:
-                output_col_type = original_col_expression.type
+                    # Generate SELECT lineage
+                    direct_raw_col_upstreams = _get_direct_raw_col_upstreams(lineage_node)
 
-            # Fuzzy resolve upstream columns.
-            direct_resolved_col_upstreams = {
-                _ColumnRef(
-                    table=edge.table,
-                    column=column_resolver.schema_aware_fuzzy_column_resolve(
-                        edge.table, edge.column
-                    ),
-                )
-                for edge in direct_raw_col_upstreams
-            }
+                    # Fuzzy resolve the output column
+                    original_col_expression = lineage_node.expression
+                    if output_col.startswith("_col_"):
+                        # This is the format sqlglot uses for unnamed columns
+                        output_col = original_col_expression.this.sql(dialect=dialect)
 
-            if not direct_resolved_col_upstreams:
-                logger.debug(f'  "{output_col}" has no upstreams')
-            if is_column_specified:
-                output_col = insert_columns[index]
-            column_lineage.append(
-                _ColumnLineageInfo(
-                    downstream=_DownstreamColumnRef(
-                        table=output_table,
-                        column=output_col,
-                        column_type=output_col_type,
-                    ),
-                    upstreams=sorted(direct_resolved_col_upstreams),
-                    logic=original_col_expression.sql(pretty=True, dialect=dialect)
-                    # logic=column_logic.sql(pretty=True, dialect=dialect),
-                )
-            )
+                    output_col = column_resolver.schema_aware_fuzzy_column_resolve(
+                        output_table, output_col
+                    )
 
-        # TODO: Also extract referenced columns (aka auxillary / non-SELECT lineage)
-    except (sqlglot.errors.OptimizeError, ValueError, IndexError) as e:
-        raise SqlUnderstandingError(
-            f"sqlglot failed to compute some lineage: {e}"
-        ) from e
+                    # Guess the output column type
+                    output_col_type = None
+                    if original_col_expression.type:
+                        output_col_type = original_col_expression.type
 
-    return column_lineage
+                    # Fuzzy resolve upstream columns
+                    direct_resolved_col_upstreams = {
+                        _ColumnRef(
+                            table=edge.table,
+                            column=column_resolver.schema_aware_fuzzy_column_resolve(
+                                edge.table, edge.column
+                            ),
+                        )
+                        for edge in direct_raw_col_upstreams
+                    }
+
+                    if is_column_specified:
+                        output_col = insert_columns[index]
+
+                    column_lineage.append(
+                        _ColumnLineageInfo(
+                            downstream=_DownstreamColumnRef(
+                                table=output_table,
+                                column=output_col,
+                                column_type=output_col_type,
+                            ),
+                            upstreams=sorted(direct_resolved_col_upstreams),
+                            logic=original_col_expression.sql(pretty=True, dialect=dialect)
+                        )
+                    )
+                    success_count += 1
+
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to generate lineage for column {output_col} at index {index}: {e}",
+                        exc_info=True
+                    )
+                    continue
+
+            logger.debug(f"Successfully generated lineage for {success_count} of {len(output_columns)} columns")
+            return column_lineage
+
+        except Exception as e:
+            logger.debug("Failed to process output columns", exc_info=True)
+            raise SqlUnderstandingError(f"Failed to process output columns: {e}") from e
+
+    except Exception as e:
+        logger.debug("Failed to generate column lineage", exc_info=True)
+        raise SqlUnderstandingError(f"Failed to generate column lineage: {e}") from e
 
 
 class _ColumnLineageWithDebugInfo(_ParserBaseModel):
@@ -1180,3 +1208,64 @@ def view_definition_lineage_helper(
             for col_result in result.column_lineage:
                 col_result.downstream.table = view_urn
     return result
+
+def _expand_star_column(
+        star_col: sqlglot.exp.Expression,
+        root_scope: sqlglot.optimizer.Scope,
+        column_resolver: _ColumnResolver
+) -> List[sqlglot.exp.Expression]:
+    """
+    "*" 컬럼을 실제 컬럼 리스트로 확장
+    """
+    try:
+        table_ref = star_col.find(sqlglot.exp.Table)
+        if not table_ref:
+            logger.debug("No specific table reference found for '*', using all tables from scope")
+            tables = root_scope.tables  # 수정: values() 제거
+        else:
+            logger.debug(f"Found table reference for '*': {table_ref.sql()}")
+            tables = [table_ref]
+
+        expanded_columns = []
+        for table in tables:
+            try:
+                schema = column_resolver.sqlglot_db_schema.find(
+                    table,
+                    raise_on_missing=False,
+                    ensure_data_types=True
+                )
+
+                if schema:
+                    table_name = _TableName.from_sqlglot_table(table)
+                    logger.debug(f"Found schema for table {table_name} with {len(schema)} columns")
+
+                    for col_name in schema.keys():
+                        try:
+                            orig_col_name = column_resolver.schema_aware_fuzzy_column_resolve(
+                                table_name, col_name
+                            )
+                            col_expr = sqlglot.exp.Column(
+                                this=sqlglot.exp.Identifier(this=orig_col_name),
+                                table=table
+                            )
+                            expanded_columns.append(col_expr)
+                        except Exception as e:
+                            logger.debug(f"Failed to process column {col_name} for table {table_name}: {e}")
+                            continue
+                else:
+                    logger.debug(f"No schema found for table {table.sql()}")
+
+            except Exception as e:
+                logger.debug(f"Error processing table {table.sql()}: {e}")
+                continue
+
+        if not expanded_columns:
+            logger.debug("No columns were expanded, returning original star column")
+            return [star_col]
+
+        logger.debug(f"Successfully expanded '*' to {len(expanded_columns)} columns")
+        return expanded_columns
+
+    except Exception as e:
+        logger.debug(f"Failed to expand star column: {e}", exc_info=True)
+        return [star_col]
