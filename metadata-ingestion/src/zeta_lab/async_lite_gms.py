@@ -424,8 +424,8 @@ async def get_aspect(encoded_urn: str, aspect: str = Query(...), version: int = 
     if urn == "urn:li:telemetry:clientId" and aspect == "telemetryClientId":
         result = {
             "aspect": {
-                "telemetryClientId": {
-                    "clientId": "dummy-client-id",
+                "com.linkedin.telemetry.TelemetryClientId": {
+                    "clientId": "custom-gms-client-id",
                     "lastUpdated": int(time.time() * 1000)
                 }
             },
