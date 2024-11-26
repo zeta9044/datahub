@@ -127,9 +127,9 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
         return urn
 
     def resolve_table(self, table: _TableName) -> Tuple[str, Optional[SchemaInfo]]:
-        urn = self.get_urn_for_table(table)
+        urn = self.get_urn_for_table(table, lower=True)
 
-        found_urn = self.find_urn_in_cache(self.platform, table.table, self.env)
+        found_urn = self.find_urn_in_cache(self.platform, table.table, self.env, lower=True)
         if found_urn:
             urn = found_urn
 
@@ -154,7 +154,12 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
     def has_urn(self, urn: str) -> bool:
         return self._schema_cache.get(urn) is not None
 
-    def find_urn_in_cache(self, platform: str, table_name: str, env: str) -> Optional[str]:
+    def find_urn_in_cache(self, platform: str, table_name: str, env: str, lower: bool = False) -> Optional[str]:
+
+        if lower:
+            table_name = table_name.lower()
+            platform = platform.lower() if platform else None
+
         logger.debug(f"Searching for URN: platform={platform}, table={table_name}, env={env}")
 
         # URN 패턴 생성 (캐시 구조에 맞게 조정)
