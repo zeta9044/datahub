@@ -14,6 +14,7 @@ import sqlglot.optimizer
 import sqlglot.optimizer.annotate_types
 import sqlglot.optimizer.optimizer
 import sqlglot.optimizer.qualify
+from sqlglot.expressions import Copy, Insert, Select, Table, Subquery
 
 from datahub.cli.env_utils import get_boolean_env_variable
 from datahub.ingestion.graph.client import DataHubGraph
@@ -63,17 +64,16 @@ SQL_LINEAGE_TIMEOUT_ENABLED = get_boolean_env_variable(
 )
 SQL_LINEAGE_TIMEOUT_SECONDS = 10
 
-
 RULES_BEFORE_TYPE_ANNOTATION: tuple = tuple(
     filter(
         lambda func: func.__name__
-        not in {
-            # Skip pushdown_predicates because it sometimes throws exceptions, and we
-            # don't actually need it for anything.
-            "pushdown_predicates",
-            # Skip normalize because it can sometimes be expensive.
-            "normalize",
-        },
+                     not in {
+                         # Skip pushdown_predicates because it sometimes throws exceptions, and we
+                         # don't actually need it for anything.
+                         "pushdown_predicates",
+                         # Skip normalize because it can sometimes be expensive.
+                         "normalize",
+                     },
         itertools.takewhile(
             lambda func: func != sqlglot.optimizer.annotate_types.annotate_types,
             sqlglot.optimizer.optimizer.RULES,
@@ -108,7 +108,7 @@ class DownstreamColumnRef(_ParserBaseModel):
 
     @pydantic.validator("column_type", pre=True)
     def _load_column_type(
-        cls, v: Optional[Union[dict, SchemaFieldDataTypeClass]]
+            cls, v: Optional[Union[dict, SchemaFieldDataTypeClass]]
     ) -> Optional[SchemaFieldDataTypeClass]:
         if v is None:
             return None
@@ -187,61 +187,60 @@ class SqlParsingResult(_ParserBaseModel):
 
 
 def _table_level_lineage(
-    statement: sqlglot.Expression, dialect: sqlglot.Dialect
+        statement: sqlglot.Expression, dialect: sqlglot.Dialect
 ) -> Tuple[Set[_TableName], Set[_TableName]]:
     # Generate table-level lineage.
     modified = (
-        {
-            _TableName.from_sqlglot_table(expr.this)
-            for expr in statement.find_all(
+            {
+                _TableName.from_sqlglot_table(expr.this)
+                for expr in statement.find_all(
                 sqlglot.exp.Create,
                 sqlglot.exp.Insert,
                 sqlglot.exp.Update,
                 sqlglot.exp.Delete,
                 sqlglot.exp.Merge,
                 sqlglot.exp.AlterTable,
-                sqlglot.exp.Copy
             )
-            # In some cases like "MERGE ... then INSERT (col1, col2) VALUES (col1, col2)",
-            # the `this` on the INSERT part isn't a table.
-            if isinstance(expr.this, sqlglot.exp.Table)
-        }
-        | {
-            # For statements that include a column list, like
-            # CREATE DDL statements and `INSERT INTO table (col1, col2) SELECT ...`
-            # the table name is nested inside a Schema object.
-            _TableName.from_sqlglot_table(expr.this.this)
-            for expr in statement.find_all(
-                sqlglot.exp.Create,
-                sqlglot.exp.Insert,
-            )
-            if isinstance(expr.this, sqlglot.exp.Schema)
-            and isinstance(expr.this.this, sqlglot.exp.Table)
-        }
-        | {
-            # For drop statements, we only want it if a table/view is being dropped.
-            # Other "kinds" will not have table.name populated.
-            _TableName.from_sqlglot_table(expr.this)
-            for expr in ([statement] if isinstance(statement, sqlglot.exp.Drop) else [])
-            if isinstance(expr.this, sqlglot.exp.Table)
-            and expr.this.this
-            and expr.this.name
-        }
+                # In some cases like "MERGE ... then INSERT (col1, col2) VALUES (col1, col2)",
+                # the `this` on the INSERT part isn't a table.
+                if isinstance(expr.this, sqlglot.exp.Table)
+            }
+            | {
+                # For statements that include a column list, like
+                # CREATE DDL statements and `INSERT INTO table (col1, col2) SELECT ...`
+                # the table name is nested inside a Schema object.
+                _TableName.from_sqlglot_table(expr.this.this)
+                for expr in statement.find_all(
+            sqlglot.exp.Create,
+            sqlglot.exp.Insert,
+        )
+                if isinstance(expr.this, sqlglot.exp.Schema)
+                   and isinstance(expr.this.this, sqlglot.exp.Table)
+            }
+            | {
+                # For drop statements, we only want it if a table/view is being dropped.
+                # Other "kinds" will not have table.name populated.
+                _TableName.from_sqlglot_table(expr.this)
+                for expr in ([statement] if isinstance(statement, sqlglot.exp.Drop) else [])
+                if isinstance(expr.this, sqlglot.exp.Table)
+                   and expr.this.this
+                   and expr.this.name
+            }
     )
 
     tables = (
-        {
-            _TableName.from_sqlglot_table(table)
-            for table in statement.find_all(sqlglot.exp.Table)
-            if not isinstance(table.parent, sqlglot.exp.Drop)
-        }
-        # ignore references created in this query
-        - modified
-        # ignore CTEs created in this statement
-        - {
-            _TableName(database=None, db_schema=None, table=cte.alias_or_name)
-            for cte in statement.find_all(sqlglot.exp.CTE)
-        }
+            {
+                _TableName.from_sqlglot_table(table)
+                for table in statement.find_all(sqlglot.exp.Table)
+                if not isinstance(table.parent, sqlglot.exp.Drop)
+            }
+            # ignore references created in this query
+            - modified
+            # ignore CTEs created in this statement
+            - {
+                _TableName(database=None, db_schema=None, table=cte.alias_or_name)
+                for cte in statement.find_all(sqlglot.exp.CTE)
+            }
     )
     # TODO: If a CTAS has "LIMIT 0", it's not really lineage, just copying the schema.
 
@@ -257,7 +256,7 @@ def _table_level_lineage(
 _SupportedColumnLineageTypes = Union[
     # Note that Select and Union inherit from Query.
     sqlglot.exp.Query,
-    # For actual subqueries, the statement type might also be DerivedTable.
+        # For actual subqueries, the statement type might also be DerivedTable.
     sqlglot.exp.DerivedTable,
 ]
 _SupportedColumnLineageTypesTuple = (sqlglot.exp.Query, sqlglot.exp.DerivedTable)
@@ -279,7 +278,7 @@ class _ColumnResolver:
     use_case_insensitive_cols: bool
 
     def schema_aware_fuzzy_column_resolve(
-        self, table: Optional[_TableName], sqlglot_column: str
+            self, table: Optional[_TableName], sqlglot_column: str
     ) -> str:
         default_col_name = (
             sqlglot_column.lower() if self.use_case_insensitive_cols else sqlglot_column
@@ -293,19 +292,19 @@ class _ColumnResolver:
 
 
 def _prepare_query_columns(
-    statement: sqlglot.exp.Expression,
-    dialect: sqlglot.Dialect,
-    table_schemas: Dict[_TableName, SchemaInfo],
-    default_db: Optional[str],
-    default_schema: Optional[str],
+        statement: sqlglot.exp.Expression,
+        dialect: sqlglot.Dialect,
+        table_schemas: Dict[_TableName, SchemaInfo],
+        default_db: Optional[str],
+        default_schema: Optional[str],
 ) -> Tuple[sqlglot.exp.Expression, "_ColumnResolver"]:
     is_create_ddl = is_create_table_ddl(statement)
     if (
-        not isinstance(
-            statement,
-            _SupportedColumnLineageTypesTuple,
-        )
-        and not is_create_ddl
+            not isinstance(
+                statement,
+                _SupportedColumnLineageTypesTuple,
+            )
+            and not is_create_ddl
     ):
         raise UnsupportedStatementTypeError(
             f"Can only generate column-level lineage for select-like inner statements, not {type(statement)}"
@@ -349,7 +348,7 @@ def _prepare_query_columns(
     if use_case_insensitive_cols:
 
         def _sqlglot_force_column_normalizer(
-            node: sqlglot.exp.Expression,
+                node: sqlglot.exp.Expression,
         ) -> sqlglot.exp.Expression:
             if isinstance(node, sqlglot.exp.Column):
                 node.this.set("quoted", False)
@@ -419,15 +418,15 @@ def _prepare_query_columns(
 
 
 def _create_table_ddl_cll(
-    statement: sqlglot.exp.Expression,
-    dialect: sqlglot.Dialect,
-    column_resolver: _ColumnResolver,
-    output_table: Optional[_TableName],
+        statement: sqlglot.exp.Expression,
+        dialect: sqlglot.Dialect,
+        column_resolver: _ColumnResolver,
+        output_table: Optional[_TableName],
 ) -> List[_ColumnLineageInfo]:
     column_lineage: List[_ColumnLineageInfo] = []
 
     assert (
-        output_table is not None
+            output_table is not None
     ), "output_table must be set for create DDL statements"
 
     create_schema: sqlglot.exp.Schema = statement.this
@@ -600,12 +599,12 @@ class _ColumnLineageWithDebugInfo(_ParserBaseModel):
 
 
 def _column_level_lineage(
-    statement: sqlglot.exp.Expression,
-    dialect: sqlglot.Dialect,
-    downstream_table: Optional[_TableName],
-    table_name_schema_mapping: Dict[_TableName, SchemaInfo],
-    default_db: Optional[str],
-    default_schema: Optional[str],
+        statement: sqlglot.exp.Expression,
+        dialect: sqlglot.Dialect,
+        downstream_table: Optional[_TableName],
+        table_name_schema_mapping: Dict[_TableName, SchemaInfo],
+        default_db: Optional[str],
+        default_schema: Optional[str],
 ) -> _ColumnLineageWithDebugInfo:
     # Simplify the input statement for column-level lineage generation.
     try:
@@ -672,7 +671,7 @@ def _column_level_lineage(
 
 
 def _get_direct_raw_col_upstreams(
-    lineage_node: sqlglot.lineage.Node,
+        lineage_node: sqlglot.lineage.Node,
 ) -> Set[_ColumnRef]:
     # Using a set here to deduplicate upstreams.
     direct_raw_col_upstreams: Set[_ColumnRef] = set()
@@ -709,7 +708,7 @@ def _get_direct_raw_col_upstreams(
 
 
 def _extract_select_from_create(
-    statement: sqlglot.exp.Create,
+        statement: sqlglot.exp.Create,
 ) -> sqlglot.exp.Expression:
     # TODO: Validate that this properly includes WITH clauses in all dialects.
     inner = statement.expression
@@ -727,7 +726,7 @@ _UPDATE_FROM_TABLE_ARGS_TO_MOVE = {"joins", "laterals", "pivot"}
 
 
 def _extract_select_from_update(
-    statement: sqlglot.exp.Update,
+        statement: sqlglot.exp.Update,
 ) -> sqlglot.exp.Select:
     statement = statement.copy()
 
@@ -737,7 +736,7 @@ def _extract_select_from_update(
     new_expressions = []
     for expr in statement.expressions:
         if isinstance(expr, sqlglot.exp.EQ) and isinstance(
-            expr.left, sqlglot.exp.Column
+                expr.left, sqlglot.exp.Column
         ):
             new_expressions.append(
                 sqlglot.exp.Alias(
@@ -787,8 +786,52 @@ def _extract_select_from_update(
     return select_statement
 
 
+def _convert_copy_to_insert(statement: sqlglot.exp.Copy) -> sqlglot.exp.Insert:
+    """Convert a COPY INTO statement to an equivalent INSERT INTO statement.
+
+    Args:
+        statement: A sqlglot.exp.Copy expression representing a COPY INTO statement
+
+    Returns:
+        sqlglot.exp.Insert: An equivalent INSERT INTO statement
+    """
+    # Get the target table
+    target_table = statement.this
+
+    # Get source data - can be files/stage location or a SELECT subquery
+    source = statement.args.get('files')
+    if not source or not isinstance(source, list) or len(source) != 1:
+        # If no valid source, create basic INSERT
+        return sqlglot.exp.Insert(
+            this=target_table,
+            expression=sqlglot.exp.Select().select("*")
+        )
+
+    source = source[0]  # Get first (and should be only) source
+
+    # If source is a SELECT subquery, use it directly
+    if isinstance(source, sqlglot.exp.Subquery) and isinstance(source.this, sqlglot.exp.Select):
+        return sqlglot.exp.Insert(
+            this=target_table,
+            expression=source.this
+        )
+
+    # If source is already a SELECT, use it
+    if isinstance(source, sqlglot.exp.Select):
+        return sqlglot.exp.Insert(
+            this=target_table,
+            expression=source
+        )
+
+    # For file/stage sources, create a basic INSERT
+    return sqlglot.exp.Insert(
+        this=target_table,
+        expression=sqlglot.exp.Select().select("*")
+    )
+
+
 def _try_extract_select(
-    statement: sqlglot.exp.Expression,
+        statement: sqlglot.exp.Expression,
 ) -> sqlglot.exp.Expression:
     # Try to extract the core select logic from a more complex statement.
     # If it fails, just return the original statement.
@@ -810,8 +853,6 @@ def _try_extract_select(
         # TODO May need to map column renames.
         # Assumption: the output table is already captured in the modified tables list.
         statement = _extract_select_from_create(statement)
-    # elif isinstance(statement,sqlglot.exp.Copy):
-    #     statement = statement.expression
 
     if isinstance(statement, sqlglot.exp.Subquery):
         statement = statement.unnest()
@@ -820,7 +861,7 @@ def _try_extract_select(
 
 
 def _translate_sqlglot_type(
-    sqlglot_type: sqlglot.exp.DataType.Type,
+        sqlglot_type: sqlglot.exp.DataType.Type,
 ) -> Optional[SchemaFieldDataTypeClass]:
     TypeClass: Any
     if sqlglot_type in sqlglot.exp.DataType.TEXT_TYPES:
@@ -857,9 +898,9 @@ def _translate_sqlglot_type(
 
 
 def _translate_internal_column_lineage(
-    table_name_urn_mapping: Dict[_TableName, str],
-    raw_column_lineage: _ColumnLineageInfo,
-    dialect: sqlglot.Dialect,
+        table_name_urn_mapping: Dict[_TableName, str],
+        raw_column_lineage: _ColumnLineageInfo,
+        dialect: sqlglot.Dialect,
 ) -> ColumnLineageInfo:
     downstream_urn = None
     if raw_column_lineage.downstream.table:
@@ -876,8 +917,8 @@ def _translate_internal_column_lineage(
             native_column_type=(
                 raw_column_lineage.downstream.column_type.sql(dialect=dialect)
                 if raw_column_lineage.downstream.column_type
-                and raw_column_lineage.downstream.column_type.this
-                != sqlglot.exp.DataType.Type.UNKNOWN
+                   and raw_column_lineage.downstream.column_type.this
+                   != sqlglot.exp.DataType.Type.UNKNOWN
                 else None
             ),
         ),
@@ -893,13 +934,12 @@ def _translate_internal_column_lineage(
 
 
 def _sqlglot_lineage_inner(
-    sql: sqlglot.exp.ExpOrStr,
-    schema_resolver: SchemaResolverInterface,
-    default_db: Optional[str] = None,
-    default_schema: Optional[str] = None,
-    default_dialect: Optional[str] = None,
+        sql: sqlglot.exp.ExpOrStr,
+        schema_resolver: SchemaResolverInterface,
+        default_db: Optional[str] = None,
+        default_schema: Optional[str] = None,
+        default_dialect: Optional[str] = None,
 ) -> SqlParsingResult:
-
     if not default_dialect:
         dialect = get_dialect(schema_resolver.platform)
     else:
@@ -924,10 +964,10 @@ def _sqlglot_lineage_inner(
     statement = parse_statement(sql, dialect=dialect)
 
     original_statement, statement = statement, statement.copy()
-    # logger.debug(
-    #     "Formatted sql statement: %s",
-    #     original_statement.sql(pretty=True, dialect=dialect),
-    # )
+
+    # Convert COPY INTO to INSERT INTO SELECT for extracting Lineage
+    if isinstance(statement, sqlglot.exp.Copy):
+        statement = _convert_copy_to_insert(statement).copy()
 
     # Make sure the tables are resolved with the default db / schema.
     # This only works for Unionable statements. For other types of statements,
@@ -994,16 +1034,14 @@ def _sqlglot_lineage_inner(
     column_lineage: Optional[List[_ColumnLineageInfo]] = None
     try:
         with cooperative_timeout(
-            timeout=(
-                SQL_LINEAGE_TIMEOUT_SECONDS if SQL_LINEAGE_TIMEOUT_ENABLED else None
-            )
+                timeout=(
+                        SQL_LINEAGE_TIMEOUT_SECONDS if SQL_LINEAGE_TIMEOUT_ENABLED else None
+                )
         ):
             # INSERT INTO ... VALUES 구문 체크
             if isinstance(statement, sqlglot.exp.Insert) and isinstance(statement.expression, sqlglot.exp.Values):
                 logger.debug("Skipping column-level lineage for INSERT INTO ... VALUES statement")
-            elif isinstance(statement, sqlglot.exp.Copy):
-                logger.debug("Skipping column-level lineage for COPY INTO ... FROM ... statement")
-            else :
+            else:
                 column_lineage_debug_info = _column_level_lineage(
                     statement,
                     dialect=dialect,
@@ -1065,11 +1103,11 @@ def _sqlglot_lineage_inner(
 
 @functools.lru_cache(maxsize=SQL_PARSE_RESULT_CACHE_SIZE)
 def sqlglot_lineage(
-    sql: str,
-    schema_resolver: SchemaResolverInterface,
-    default_db: Optional[str] = None,
-    default_schema: Optional[str] = None,
-    default_dialect: Optional[str] = None,
+        sql: str,
+        schema_resolver: SchemaResolverInterface,
+        default_db: Optional[str] = None,
+        default_schema: Optional[str] = None,
+        default_dialect: Optional[str] = None,
 ) -> SqlParsingResult:
     """Parse a SQL statement and generate lineage information.
 
@@ -1135,14 +1173,14 @@ def sqlglot_lineage(
 
 
 def create_lineage_sql_parsed_result(
-    query: str,
-    default_db: Optional[str],
-    platform: str,
-    platform_instance: Optional[str],
-    env: str,
-    default_schema: Optional[str] = None,
-    graph: Optional[DataHubGraph] = None,
-    schema_aware: bool = True,
+        query: str,
+        default_db: Optional[str],
+        platform: str,
+        platform_instance: Optional[str],
+        env: str,
+        default_schema: Optional[str] = None,
+        graph: Optional[DataHubGraph] = None,
+        schema_aware: bool = True,
 ) -> SqlParsingResult:
     if graph and schema_aware:
         needs_close = False
@@ -1184,8 +1222,8 @@ def infer_output_schema(result: SqlParsingResult) -> Optional[List[SchemaFieldCl
             SchemaFieldClass(
                 fieldPath=column_info.downstream.column,
                 type=(
-                    column_info.downstream.column_type
-                    or SchemaFieldDataTypeClass(type=NullTypeClass())
+                        column_info.downstream.column_type
+                        or SchemaFieldDataTypeClass(type=NullTypeClass())
                 ),
                 nativeDataType=column_info.downstream.native_column_type or "",
             )
@@ -1194,7 +1232,7 @@ def infer_output_schema(result: SqlParsingResult) -> Optional[List[SchemaFieldCl
 
 
 def view_definition_lineage_helper(
-    result: SqlParsingResult, view_urn: str
+        result: SqlParsingResult, view_urn: str
 ) -> SqlParsingResult:
     if result.query_type is QueryType.SELECT:
         # Some platforms (e.g. postgres) store only <select statement> from view definition
@@ -1208,6 +1246,7 @@ def view_definition_lineage_helper(
             for col_result in result.column_lineage:
                 col_result.downstream.table = view_urn
     return result
+
 
 def _expand_star_column(
         star_col: sqlglot.exp.Expression,
