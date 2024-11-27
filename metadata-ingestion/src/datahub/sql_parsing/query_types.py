@@ -57,7 +57,6 @@ def get_query_type_of_sql(
     mapping = {
         sqlglot.exp.Select: QueryType.SELECT,
         sqlglot.exp.Insert: QueryType.INSERT,
-        sqlglot.exp.Copy: QueryType.COPY_INTO,  # BigQuery,Snowflake
         sqlglot.exp.Update: QueryType.UPDATE,
         sqlglot.exp.Delete: QueryType.DELETE,
         sqlglot.exp.Merge: QueryType.MERGE,
