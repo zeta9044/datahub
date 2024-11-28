@@ -169,7 +169,6 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
 
         matching_urns = []
         for urn in self._schema_cache.keys():
-            logger.debug(f"cache urn ==> {urn}")
             if re.match(urn_pattern, urn, re.IGNORECASE):
                 matching_urns.append(urn)
 
