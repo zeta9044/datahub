@@ -137,18 +137,8 @@ class SqlParsingBuilder:
         upstreams_to_ingest = result.in_tables
         if include_urns:
             logger.debug(f"Skipping urns {set(downstreams_to_ingest) - include_urns}")
-            # downstreams_to_ingest = list(set(downstreams_to_ingest) & include_urns)
-            # upstreams_to_ingest = list(set(upstreams_to_ingest) & include_urns)
-
-            # Filter downstreams_to_ingest only if there is an intersection with include_urns
-            filtered_downstreams = list(set(downstreams_to_ingest) & include_urns)
-            if filtered_downstreams:
-                downstreams_to_ingest = filtered_downstreams
-
-            # Filter upstreams_to_ingest only if there is an intersection with include_urns
-            filtered_upstreams = list(set(upstreams_to_ingest) & include_urns)
-            if filtered_upstreams:
-                upstreams_to_ingest = filtered_upstreams
+            downstreams_to_ingest = list(set(downstreams_to_ingest) & include_urns)
+            upstreams_to_ingest = list(set(upstreams_to_ingest) & include_urns)
 
         if self.generate_lineage:
             for downstream_urn in downstreams_to_ingest:
