@@ -966,8 +966,8 @@ def _sqlglot_lineage_inner(
     original_statement, statement = statement, statement.copy()
 
     # Convert COPY INTO to INSERT INTO SELECT for extracting Lineage
-    if isinstance(statement, sqlglot.exp.Copy):
-        statement = _convert_copy_to_insert(statement).copy()
+    if isinstance(original_statement, sqlglot.exp.Copy):
+        statement = _convert_copy_to_insert(original_statement)
 
     # Make sure the tables are resolved with the default db / schema.
     # This only works for Unionable statements. For other types of statements,
@@ -1084,8 +1084,12 @@ def _sqlglot_lineage_inner(
             )
             debug_info.column_error = e
 
+    # Select statement based on the condition using a ternary operator
+    statement_to_use = statement if isinstance(original_statement, sqlglot.exp.Copy) else original_statement
+
+    # Use the selected statement to call get_query_type_of_sql
     query_type, query_type_props = get_query_type_of_sql(
-        original_statement, dialect=dialect
+        statement_to_use, dialect=dialect
     )
     query_fingerprint, debug_info.generalized_statement = get_query_fingerprint_debug(
         original_statement, dialect
