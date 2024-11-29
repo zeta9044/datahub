@@ -126,7 +126,7 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
         """AIS0113 청크 처리"""
         try:
             self.connection.executemany("""
-                INSERT INTO ais0113 
+                INSERT OR REPLACE INTO ais0113 
                 (prj_id, file_id, sql_id, table_id, col_id, obj_id, func_id,
                  owner_name, table_name, caps_table_name, sql_obj_type,
                  col_name, caps_col_name, col_value_yn, col_expr,
