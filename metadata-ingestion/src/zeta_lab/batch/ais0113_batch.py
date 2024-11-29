@@ -26,6 +26,8 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
             List[Tuple]: 데이터베이스에 삽입할 데이터 튜플 리스트
         """
         try:
+            prepared_data = []
+
             # Extract required data
             upstream = item['upstream']
             downstream = item['downstream']
@@ -56,56 +58,57 @@ class AIS0113BatchProcessor(DuckDBBatchProcessor):
             # Get query custom keys
             query_custom_keys = upstream['query_custom_keys']
 
-            # Create tuple for insertion
-            prepared_data = [(
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                upstream['table_id'],
-                upstream_col['col_id'],
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                upstream_owner,
-                upstream_table,
-                upstream_table.upper(),
-                upstream_sql_obj_type,
-                upstream_col['name'],
-                upstream_col['name'].upper(),
-                'N',  # col_value_yn
-                transform_operation,
-                upstream_col['name'],
-                upstream_col['name'].upper(),
-                upstream_unique_owner,
-                upstream_unique_owner_tgt_srv_id,
-                upstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
-                query_custom_keys.get('prj_id', ''),
-                int(query_custom_keys.get('file_id', 0)),
-                int(query_custom_keys.get('sql_id', 0)),
-                downstream['table_id'],
-                downstream_col['col_id'],
-                int(query_custom_keys.get('obj_id', 0)),
-                int(query_custom_keys.get('func_id', 0)),
-                downstream_owner,
-                downstream_table,
-                downstream_table.upper(),
-                downstream_sql_obj_type,
-                downstream_col['name'],
-                downstream_col['name'].upper(),
-                'N',  # call_col_value_yn
-                '',  # call_col_expr
-                downstream_col['name'],
-                downstream_col['name'].upper(),
-                downstream_unique_owner,
-                downstream_unique_owner_tgt_srv_id,
-                downstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
-                col_order_no,
-                call_col_order_no,
-                col_order_no,  # adj_col_order_no
-                call_col_order_no,  # call_adj_col_order_no
-                1,  # cond_mapping
-                None,  # data_maker
-                ''  # mapping_kind
-            )]
+            for query in query_custom_keys:
+                # Create tuple for insertion
+                prepared_data.append((
+                    query.get('prj_id', ''),
+                    int(query.get('file_id', 0)),
+                    int(query.get('sql_id', 0)),
+                    upstream['table_id'],
+                    upstream_col['col_id'],
+                    int(query.get('obj_id', 0)),
+                    int(query.get('func_id', 0)),
+                    upstream_owner,
+                    upstream_table,
+                    upstream_table.upper(),
+                    upstream_sql_obj_type,
+                    upstream_col['name'],
+                    upstream_col['name'].upper(),
+                    'N',  # col_value_yn
+                    transform_operation,
+                    upstream_col['name'],
+                    upstream_col['name'].upper(),
+                    upstream_unique_owner,
+                    upstream_unique_owner_tgt_srv_id,
+                    upstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
+                    query.get('prj_id', ''),
+                    int(query.get('file_id', 0)),
+                    int(query.get('sql_id', 0)),
+                    downstream['table_id'],
+                    downstream_col['col_id'],
+                    int(query.get('obj_id', 0)),
+                    int(query.get('func_id', 0)),
+                    downstream_owner,
+                    downstream_table,
+                    downstream_table.upper(),
+                    downstream_sql_obj_type,
+                    downstream_col['name'],
+                    downstream_col['name'].upper(),
+                    'N',  # call_col_value_yn
+                    '',  # call_col_expr
+                    downstream_col['name'],
+                    downstream_col['name'].upper(),
+                    downstream_unique_owner,
+                    downstream_unique_owner_tgt_srv_id,
+                    downstream['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
+                    col_order_no,
+                    call_col_order_no,
+                    col_order_no,  # adj_col_order_no
+                    call_col_order_no,  # call_adj_col_order_no
+                    1,  # cond_mapping
+                    None,  # data_maker
+                    ''  # mapping_kind
+                ))
 
             return prepared_data
 
