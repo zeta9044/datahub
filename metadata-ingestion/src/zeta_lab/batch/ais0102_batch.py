@@ -28,20 +28,20 @@ class AIS0102BatchProcessor(DuckDBBatchProcessor):
         table = NameUtil.get_table_name(content)
         sql_obj_type = get_sql_obj_type(table)
 
-
-        # Create tuple for insertion
-        prepared_data.append((
-            item['query_custom_keys'].get('prj_id', ''),
-            int(item['query_custom_keys'].get('file_id', 0)),
-            int(item['query_custom_keys'].get('sql_id', 0)),
-            item['table_id'],
-            int(item['query_custom_keys'].get('obj_id', 0)),
-            int(item['query_custom_keys'].get('func_id', 0)),
-            item['query_custom_keys'].get('query_type', ''),
-            sql_obj_type,
-            item['urn'],
-            item['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
-        ))
+        for query in item['query_custom_keys']:
+            # Create tuple for insertion
+            prepared_data.append((
+                query.get('prj_id', ''),
+                int(query.get('file_id', 0)),
+                int(query.get('sql_id', 0)),
+                item['table_id'],
+                int(query.get('obj_id', 0)),
+                int(query.get('func_id', 0)),
+                query.get('query_type', ''),
+                sql_obj_type,
+                item['urn'],
+                item['properties']['aspect']['datasetProperties']['customProperties'].get('system_biz_id'),
+            ))
 
         return prepared_data
 
