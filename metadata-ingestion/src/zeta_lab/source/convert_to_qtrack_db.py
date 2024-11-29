@@ -202,7 +202,7 @@ class ConvertQtrackSource(Source):
                 'urn': upstream_urn,
                 'properties': self.get_dataset_properties(upstream_urn) or create_default_dataset_properties(self.system_biz_id[0], upstream_urn),
                 'table_id': upstream_table_id,
-                'query_custom_keys': upstream.get('query_custom_keys', {})
+                'query_custom_keys': upstream.get('query_custom_keys', [])
             }
             prepared_data['upstreams'].append(upstream_data)
 
