@@ -81,9 +81,4 @@ record QueryProperties {
    */
    origin: optional Urn
 
-  /**
-   * Custom metadata for this query
-   */
-  query_custom_keys: optional map[string, string]
-
 }
