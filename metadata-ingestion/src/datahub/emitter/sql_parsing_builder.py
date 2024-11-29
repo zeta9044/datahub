@@ -47,8 +47,7 @@ class LineageEdge:
     # Maps downstream_col -> {upstream_col}
     column_map: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))
 
-    query: Optional[str] = None  # Add query field
-    custom_keys: Optional[Dict[str, str]] = None # Add custom keys field
+    custom_keys_list: Optional[List[Dict[str, str]]] = None # Add custom keys list
     column_logic: Optional[Dict[str, str]] = field(default_factory=dict)  # New field to store column logic
 
     def gen_upstream_aspect(self) -> UpstreamClass:
@@ -63,8 +62,7 @@ class LineageEdge:
             ),
             dataset=self.upstream_urn,
             type=self.type,
-            query=self.query,  # Include query field
-            query_custom_keys=self.custom_keys, # Include custom key for query
+            query_custom_keys=self.custom_keys_list, # Include custom key for query
         )
 
     def gen_fine_grained_lineage_aspects(self) -> Iterable[FineGrainedLineageClass]:
@@ -136,9 +134,13 @@ class SqlParsingBuilder:
         downstreams_to_ingest = result.out_tables
         upstreams_to_ingest = result.in_tables
         if include_urns:
-            logger.debug(f"Skipping urns {set(downstreams_to_ingest) - include_urns}")
-            downstreams_to_ingest = list(set(downstreams_to_ingest) & include_urns)
-            upstreams_to_ingest = list(set(upstreams_to_ingest) & include_urns)
+            if custom_keys:
+                # Even if not in GMS, process it.
+                pass
+            else:
+                logger.debug(f"Skipping urns {set(downstreams_to_ingest) - include_urns}")
+                downstreams_to_ingest = list(set(downstreams_to_ingest) & include_urns)
+                upstreams_to_ingest = list(set(upstreams_to_ingest) & include_urns)
 
         if self.generate_lineage:
             for downstream_urn in downstreams_to_ingest:
@@ -153,7 +155,6 @@ class SqlParsingBuilder:
                     query_timestamp=query_timestamp,
                     is_view_ddl=is_view_ddl,
                     user=user,
-                    query=query,  # Pass the query to the lineage data
                     custom_keys=custom_keys, # Pass the custom keys to the lineag data
                 )
 
@@ -243,7 +244,6 @@ def _merge_lineage_data(
     query_timestamp: Optional[datetime],
     is_view_ddl: bool,
     user: Optional[UserUrn],
-    query: Optional[str] = None,  # Add query parameter
     custom_keys: Optional[Dict[str, str]] = None, # Add custom keys parameter
 ) -> Dict[str, LineageEdge]:
     for upstream_urn in upstream_urns:
@@ -259,8 +259,7 @@ def _merge_lineage_data(
                     if is_view_ddl
                     else DatasetLineageTypeClass.TRANSFORMED
                 ),
-                query=query,  # Set the query
-                custom_keys=custom_keys # Set the custom keys
+                custom_keys_list=[]
             ),
         )
         if query_timestamp and (  # Use the most recent query
@@ -269,9 +268,8 @@ def _merge_lineage_data(
             edge.audit_stamp = query_timestamp
             if user:
                 edge.actor = user
-        edge.query = query  # Update the query
-        edge.custom_keys = custom_keys # Update the custom keys
-
+        if custom_keys:
+            edge.custom_keys_list.append(custom_keys)
     # Note: Inefficient as we loop through all column_lineage entries for each downstream table
     for cl in column_lineage or []:
         if cl.downstream.table == downstream_urn:
