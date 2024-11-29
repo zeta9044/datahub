@@ -179,6 +179,8 @@ class SqlQueriesSource(Source):
             default_schema=self.config.default_schema,
         )
 
+        entry.custom_keys['query_text'] = entry.query
+
         if result.query_type:
             entry.custom_keys['query_type']= result.query_type.value
 
