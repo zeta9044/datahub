@@ -3,7 +3,6 @@ namespace com.linkedin.dataset
 import com.linkedin.common.AuditStamp
 import com.linkedin.common.DatasetUrn
 import com.linkedin.common.Urn
-import com.linkedin.query.QueryProperties
 
 
 /**
