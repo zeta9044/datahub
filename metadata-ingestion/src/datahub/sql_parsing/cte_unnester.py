@@ -1,6 +1,8 @@
+from typing import Dict, Tuple
+
 import sqlglot
 from sqlglot.expressions import With, Select, CTE, Table, Subquery, Expression
-from typing import Dict, Optional, Union, List, Tuple
+
 
 class CTEUnnester:
     def __init__(self):

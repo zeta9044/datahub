@@ -52,6 +52,7 @@ from datahub.utilities.cooperative_timeout import (
     CooperativeTimeoutError,
     cooperative_timeout,
 )
+from datahub.sql_parsing.cte_unnester import transform_expression
 
 logger = logging.getLogger(__name__)
 
@@ -608,6 +609,9 @@ def _column_level_lineage(
     # Simplify the input statement for column-level lineage generation.
     try:
         select_statement = _try_extract_select(statement)
+
+        # solved problem of CTE mapping
+        select_statement = transform_expression(select_statement)
     except Exception as e:
         raise SqlUnderstandingError(
             f"Failed to extract select from statement: {e}"
