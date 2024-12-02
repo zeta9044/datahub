@@ -14,7 +14,6 @@ import sqlglot.optimizer
 import sqlglot.optimizer.annotate_types
 import sqlglot.optimizer.optimizer
 import sqlglot.optimizer.qualify
-from sqlglot.expressions import Copy, Insert, Select, Table, Subquery
 
 from datahub.cli.env_utils import get_boolean_env_variable
 from datahub.ingestion.graph.client import DataHubGraph
