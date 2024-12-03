@@ -436,9 +436,9 @@ def extract_insert_target_columns(
     return is_column_specified, target_columns
 
 
-def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> Tuple[str, str]:
+def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> str:
     """
-    Removes comments from SQL query and formats both original and cleaned versions.
+    Removes comments from SQL query and formats cleaned versions.
 
     Args:
         sql (str): Input SQL query string
@@ -446,7 +446,7 @@ def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> Tuple[str, 
                                If None, attempts auto-detection
 
     Returns:
-        Tuple[str, str]: (Formatted original SQL, Comment-removed and formatted SQL)
+        str: Comment-removed and formatted SQL
 
     Examples:
         >>> sql = '''
@@ -467,13 +467,10 @@ def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> Tuple[str, 
         # Parse SQL
         parsed = sqlglot.parse_one(sql, dialect=dialect)
 
-        # Format original SQL nicely (including comments)
-        original_pretty = sqlglot.format(sql, dialect=dialect, pretty=True)
-
         # Convert parsed AST back to SQL (removing comments) and format
         cleaned_pretty = parsed.sql(dialect=dialect, pretty=True)
 
-        return original_pretty.strip(), cleaned_pretty.strip()
+        return cleaned_pretty.strip()
 
     except Exception as e:
         raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
