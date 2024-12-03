@@ -37,6 +37,7 @@ from datahub.ingestion.graph.client import DataHubGraph
 from datahub.ingestion.source.usage.usage_common import BaseUsageConfig
 from datahub.sql_parsing.schema_resolver import SchemaResolver
 from datahub.sql_parsing.sqlglot_lineage import sqlglot_lineage
+from datahub.sql_parsing.sqlglot_utils import clean_and_pretty_sql
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class SqlQueriesSource(Source):
             default_schema=self.config.default_schema,
         )
 
-        entry.custom_keys['query_text'] = entry.query
+        entry.custom_keys['query_text'] = clean_and_pretty_sql(entry.query)
 
         if result.query_type:
             entry.custom_keys['query_type']= result.query_type.value
