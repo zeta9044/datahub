@@ -7,7 +7,8 @@ from typing import Dict, Iterable, Union, List, Optional, Tuple
 import sqlglot
 import sqlglot.errors
 import sqlglot.optimizer.eliminate_ctes
-from sqlglot.tokens import TokenType
+
+from scripts.docgen import priority_value
 
 logger = logging.getLogger(__name__)
 DialectOrStr = Union[sqlglot.Dialect, str]
@@ -436,30 +437,26 @@ def extract_insert_target_columns(
     return is_column_specified, target_columns
 
 
-def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> str:
+def clean_and_pretty_sql(query: str, dialect: Optional[str] = None) -> str:
     """
-    Removes all comments from SQL query and formats it.
+    Removes all comments from SQL query and preserves the original query structure.
 
     Args:
-        sql (str): Input SQL query string
+        query (str): Input SQL query string
         dialect (Optional[str]): SQL dialect (e.g., 'mysql', 'postgresql', 'snowflake', etc.)
                                If None, attempts auto-detection
 
     Returns:
-        str: Comment-removed and formatted SQL
+        str: Comment-removed SQL with original structure preserved
     """
+    # 정규표현식을 사용해 주석 제거
+    # -- 스타일 주석 제거
+    query = re.sub(r"--.*?(\r\n|\r|\n)", " ", query)
+    # /* */ 스타일 주석 제거
+    query = re.sub(r"/\*.*?\*/", " ", query, flags=re.DOTALL)
     try:
-        tokenizer = sqlglot.Tokenizer()
-        tokens = tokenizer.tokenize(sql)
-
-        # Remove comment tokens and convert back to SQL
-        cleaned_sql = ''.join(
-            token.text for token in tokens
-            if token.token_type != TokenType.COMMENT
-        )
-
-        # Format the cleaned SQL
-        return sqlglot.format(cleaned_sql, dialect=dialect, pretty=True).strip()
-
+        parsed = sqlglot.parse_one(query, read=dialect)  # 필요한 경우 다른 dialect 사용
+        # 파싱된 쿼리를 렌더링하여 주석이 제거된 결과 반환
+        return parsed.sql(pretty=True, dialect=dialect)
     except Exception as e:
         raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
