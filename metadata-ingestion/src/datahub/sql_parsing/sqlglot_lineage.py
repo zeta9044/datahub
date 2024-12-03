@@ -198,7 +198,7 @@ def _table_level_lineage(
                 sqlglot.exp.Update,
                 sqlglot.exp.Delete,
                 sqlglot.exp.Merge,
-                sqlglot.exp.AlterTable,
+                sqlglot.exp.Alter,
             )
                 # In some cases like "MERGE ... then INSERT (col1, col2) VALUES (col1, col2)",
                 # the `this` on the INSERT part isn't a table.
@@ -354,15 +354,15 @@ def _prepare_query_columns(
 
             return node
 
-        # logger.debug(
-        #     "Prior to case normalization sql %s",
-        #     statement.sql(pretty=True, dialect=dialect),
-        # )
+        logger.debug(
+            "Prior to case normalization sql %s",
+            statement.sql(pretty=True, dialect=dialect),
+        )
         statement = statement.transform(_sqlglot_force_column_normalizer, copy=False)
-        # logger.debug(
-        #     "Sql after casing normalization %s",
-        #     statement.sql(pretty=True, dialect=dialect),
-        # )
+        logger.debug(
+            "Sql after casing normalization %s",
+            statement.sql(pretty=True, dialect=dialect),
+        )
 
     if not is_create_ddl:
         # Optimize the statement + qualify column references.
@@ -389,7 +389,14 @@ def _prepare_query_columns(
                 # sqlglot calls the db -> schema -> table hierarchy "catalog", "db", "table".
                 catalog=default_db,
                 db=default_schema,
-                rules=RULES_BEFORE_TYPE_ANNOTATION,
+                rules=(
+                    sqlglot.optimizer.optimizer.qualify,
+                    sqlglot.optimizer.optimizer.pushdown_projections,
+                    sqlglot.optimizer.optimizer.unnest_subqueries,
+                    sqlglot.optimizer.optimizer.merge_subqueries,
+                    sqlglot.optimizer.optimizer.eliminate_ctes,
+                    sqlglot.optimizer.optimizer.quote_identifiers,
+                ),
             )
         except (sqlglot.errors.OptimizeError, ValueError) as e:
             raise SqlUnderstandingError(
@@ -692,7 +699,9 @@ def _get_direct_raw_col_upstreams(
             # Parse the column name out of the node name.
             # Sqlglot calls .sql(), so we have to do the inverse.
             normalized_col = sqlglot.parse_one(node.name).this.name
-            if node.subfield:
+            if hasattr(node, "subfield") and node.subfield:
+                # The hasattr check is necessary, since it lets us be compatible with
+                # sqlglot versions that don't have the subfield attribute.
                 normalized_col = f"{normalized_col}.{node.subfield}"
 
             direct_raw_col_upstreams.add(
@@ -962,7 +971,16 @@ def _sqlglot_lineage_inner(
     logger.debug("Parsing lineage from sql statement: %s", sql)
     statement = parse_statement(sql, dialect=dialect)
 
-    original_statement, statement = statement, statement.copy()
+    # To eliminate CTE column mapping errors, optimize the statement from the beginning.
+    original_statement, statement = statement, sqlglot.optimizer.optimizer.optimize(
+        statement, dialect=dialect, rules=(
+            sqlglot.optimizer.optimizer.qualify,
+            sqlglot.optimizer.optimizer.pushdown_projections,
+            sqlglot.optimizer.optimizer.unnest_subqueries,
+            sqlglot.optimizer.optimizer.merge_subqueries,
+            sqlglot.optimizer.optimizer.eliminate_ctes,
+            sqlglot.optimizer.optimizer.quote_identifiers,
+        ))
 
     # Convert COPY INTO to INSERT INTO SELECT for extracting Lineage
     if isinstance(original_statement, sqlglot.exp.Copy):
