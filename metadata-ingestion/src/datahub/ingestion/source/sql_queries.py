@@ -1,11 +1,11 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from typing import Iterable, List, Optional, Set, Dict
 
+from dataclasses import dataclass
 from pydantic import Field
 
 from datahub.configuration.source_common import (
@@ -173,17 +173,18 @@ class SqlQueriesSource(Source):
         if self.report.num_queries_parsed % 1000 == 0:
             logger.info(f"Parsed {self.report.num_queries_parsed} queries")
 
+        sanitized_query = clean_and_pretty_sql(entry.query)
         result = sqlglot_lineage(
-            sql=entry.query,
+            sql=sanitized_query,
             schema_resolver=self.schema_resolver,
             default_db=self.config.default_db,
             default_schema=self.config.default_schema,
         )
 
-        entry.custom_keys['query_text'] = clean_and_pretty_sql(entry.query)
+        entry.custom_keys['query_text'] = sanitized_query
 
         if result.query_type:
-            entry.custom_keys['query_type']= result.query_type.value
+            entry.custom_keys['query_type'] = result.query_type.value
 
         if result.query_type_props:
             entry.custom_keys['query_type_props'] = json.dumps(result.query_type_props)
@@ -228,7 +229,7 @@ class QueryEntry:
 
     @classmethod
     def create(
-        cls, entry_dict: dict, *, config: SqlQueriesSourceConfig
+            cls, entry_dict: dict, *, config: SqlQueriesSourceConfig
     ) -> "QueryEntry":
         return cls(
             query=entry_dict["query"],
@@ -257,5 +258,5 @@ class QueryEntry:
                 )
                 for table in entry_dict.get("upstream_tables", [])
             ],
-            custom_keys=entry_dict.get("custom_keys", {}), # add custom_keys for extended query_file
+            custom_keys=entry_dict.get("custom_keys", {}),  # add custom_keys for extended query_file
         )
