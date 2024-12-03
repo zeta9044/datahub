@@ -2,7 +2,8 @@ import functools
 import hashlib
 import logging
 import re
-from typing import Dict, Iterable, Optional, Tuple, Union, List
+from typing import Dict, Iterable, Union, List
+from typing import Optional, Tuple
 
 import sqlglot
 import sqlglot.errors
@@ -433,3 +434,64 @@ def extract_insert_target_columns(
                 is_column_specified = False
 
     return is_column_specified, target_columns
+
+
+def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> Tuple[str, str]:
+    """
+    Removes comments from SQL query and formats both original and cleaned versions.
+
+    Args:
+        sql (str): Input SQL query string
+        dialect (Optional[str]): SQL dialect (e.g., 'mysql', 'postgresql', 'snowflake', etc.)
+                               If None, attempts auto-detection
+
+    Returns:
+        Tuple[str, str]: (Formatted original SQL, Comment-removed and formatted SQL)
+
+    Examples:
+        >>> sql = '''
+        ... -- This is a line comment
+        ... SELECT * FROM users
+        ... /* This is a
+        ... block comment */
+        ... WHERE id > 100;
+        ... '''
+        >>> original_pretty, cleaned_pretty = clean_and_pretty_sql(sql)
+        >>> print(cleaned_pretty)
+        SELECT
+          *
+        FROM users
+        WHERE id > 100
+    """
+    try:
+        # Parse SQL
+        parsed = sqlglot.parse_one(sql, dialect=dialect)
+
+        # Format original SQL nicely (including comments)
+        original_pretty = sqlglot.format(sql, dialect=dialect, pretty=True)
+
+        # Convert parsed AST back to SQL (removing comments) and format
+        cleaned_pretty = parsed.sql(dialect=dialect, pretty=True)
+
+        return original_pretty.strip(), cleaned_pretty.strip()
+
+    except Exception as e:
+        raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
+
+
+def remove_comments(sql: str, dialect: Optional[str] = None) -> str:
+    """
+    Removes all comments from SQL query (without formatting).
+
+    Args:
+        sql (str): Input SQL query string
+        dialect (Optional[str]): SQL dialect
+
+    Returns:
+        str: SQL query with comments removed
+    """
+    try:
+        parsed = sqlglot.parse_one(sql, dialect=dialect)
+        return parsed.sql(dialect=dialect).strip()
+    except Exception as e:
+        raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
