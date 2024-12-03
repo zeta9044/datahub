@@ -2,12 +2,12 @@ import functools
 import hashlib
 import logging
 import re
-from typing import Dict, Iterable, Union, List
-from typing import Optional, Tuple
+from typing import Dict, Iterable, Union, List, Optional, Tuple
 
 import sqlglot
 import sqlglot.errors
 import sqlglot.optimizer.eliminate_ctes
+from sqlglot.tokens import TokenType
 
 logger = logging.getLogger(__name__)
 DialectOrStr = Union[sqlglot.Dialect, str]
@@ -438,7 +438,7 @@ def extract_insert_target_columns(
 
 def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> str:
     """
-    Removes comments from SQL query and formats cleaned versions.
+    Removes all comments from SQL query and formats it.
 
     Args:
         sql (str): Input SQL query string
@@ -447,48 +447,19 @@ def clean_and_pretty_sql(sql: str, dialect: Optional[str] = None) -> str:
 
     Returns:
         str: Comment-removed and formatted SQL
-
-    Examples:
-        >>> sql = '''
-        ... -- This is a line comment
-        ... SELECT * FROM users
-        ... /* This is a
-        ... block comment */
-        ... WHERE id > 100;
-        ... '''
-        >>> original_pretty, cleaned_pretty = clean_and_pretty_sql(sql)
-        >>> print(cleaned_pretty)
-        SELECT
-          *
-        FROM users
-        WHERE id > 100
     """
     try:
-        # Parse SQL
-        parsed = sqlglot.parse_one(sql, dialect=dialect)
+        tokenizer = sqlglot.Tokenizer()
+        tokens = tokenizer.tokenize(sql)
 
-        # Convert parsed AST back to SQL (removing comments) and format
-        cleaned_pretty = parsed.sql(dialect=dialect, pretty=True)
+        # Remove comment tokens and convert back to SQL
+        cleaned_sql = ''.join(
+            token.text for token in tokens
+            if token.token_type != TokenType.COMMENT
+        )
 
-        return cleaned_pretty.strip()
+        # Format the cleaned SQL
+        return sqlglot.format(cleaned_sql, dialect=dialect, pretty=True).strip()
 
-    except Exception as e:
-        raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
-
-
-def remove_comments(sql: str, dialect: Optional[str] = None) -> str:
-    """
-    Removes all comments from SQL query (without formatting).
-
-    Args:
-        sql (str): Input SQL query string
-        dialect (Optional[str]): SQL dialect
-
-    Returns:
-        str: SQL query with comments removed
-    """
-    try:
-        parsed = sqlglot.parse_one(sql, dialect=dialect)
-        return parsed.sql(dialect=dialect).strip()
     except Exception as e:
         raise ValueError(f"Error occurred while parsing SQL: {str(e)}")
