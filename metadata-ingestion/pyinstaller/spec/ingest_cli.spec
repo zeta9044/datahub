@@ -57,20 +57,19 @@ a = Analysis([main_script],
 
                # Sqlglot lib
                'sqlglotrs',
-               'sqlglot.parse_one',
                'sqlglot',
 
                # DataHub Core
+               'datahub.ingestion.reporting',
                'datahub.ingestion.reporting.datahub_ingestion_run_summary_provider',
                'datahub.ingestion.reporting.file_reporter',
                'datahub.ingestion.reporting.reporting_provider_registry',
-               'datahub.ingestion.reporting',
-               'datahub.emitter.sql_parsing_builder',
                'datahub.emitter',
+               'datahub.emitter.sql_parsing_builder',
+               'datahub.sql_parsing',
                'datahub.sql_parsing.sqlglot_lineage',
                'datahub.sql_parsing.query_types',
                'datahub.sql_parsing.sqlglot_utils',
-               'datahub.sql_parsing',
 
                # Sources
                'datahub.ingestion.source.sql_queries',
