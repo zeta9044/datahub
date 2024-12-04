@@ -834,7 +834,7 @@ def _convert_copy_to_insert(statement: sqlglot.exp.Copy) -> sqlglot.exp.Insert:
     # For file/stage sources, create a basic INSERT
     return sqlglot.exp.Insert(
         this=target_table,
-        expression=sqlglot.exp.Select().select("*")
+        expression=sqlglot.exp.Select().select("*").from_(source)
     )
 
 
