@@ -55,6 +55,10 @@ a = Analysis([main_script],
                'typing',
                'click',
 
+               # Sqlglot lib
+               'sqlglotrs',
+               'sqlglot',
+
                # DataHub Core
                'datahub.ingestion.reporting.datahub_ingestion_run_summary_provider',
                'datahub.ingestion.reporting.file_reporter',
