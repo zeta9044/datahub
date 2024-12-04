@@ -26,18 +26,18 @@ from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
 from zeta_lab.utilities.tool import get_server_pid
 
 # Set up logging
-# logging.basicConfig(
-#     level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
-#     format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
-# )
-# 로깅 포맷을 소스파일명과 라인번호가 포함되도록 설정
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL 중 선택)
+    format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
 )
+# 로깅 포맷을 소스파일명과 라인번호가 포함되도록 설정
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+# )
 
 # datahub 로거 설정
-logging.getLogger("datahub").setLevel(logging.DEBUG)
+# logging.getLogger("datahub").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def safe_register(registry, name, class_):
