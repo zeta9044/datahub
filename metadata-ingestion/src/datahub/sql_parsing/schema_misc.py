@@ -1,5 +1,6 @@
-from typing import Tuple,Optional
 import re
+from typing import Tuple
+
 
 def is_external_storage_path(path: str) -> bool:
     """
