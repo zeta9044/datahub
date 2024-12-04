@@ -57,6 +57,7 @@ a = Analysis([main_script],
 
                # Sqlglot lib
                'sqlglotrs',
+               'sqlglot.parse_one',
                'sqlglot',
 
                # DataHub Core
