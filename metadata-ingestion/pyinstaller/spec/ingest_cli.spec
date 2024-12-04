@@ -60,6 +60,11 @@ a = Analysis([main_script],
                'datahub.ingestion.reporting.file_reporter',
                'datahub.ingestion.reporting.reporting_provider_registry',
                'datahub.ingestion.reporting',
+               'datahub.ingestion.emitter.sql_parsing_builder',
+               'datahub.sql_parsing.sqlglot_lineage',
+               'datahub.sql_parsing.query_types',
+               'datahub.sql_parsing.sqlglot_utils',
+               'datahub.sql_parsing',
 
                # Sources
                'datahub.ingestion.source.sql_queries',
