@@ -8,8 +8,6 @@ import sqlglot
 import sqlglot.errors
 import sqlglot.optimizer.eliminate_ctes
 
-from scripts.docgen import priority_value
-
 logger = logging.getLogger(__name__)
 DialectOrStr = Union[sqlglot.Dialect, str]
 SQL_PARSE_CACHE_SIZE = 1000
