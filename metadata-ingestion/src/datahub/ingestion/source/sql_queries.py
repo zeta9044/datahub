@@ -173,7 +173,7 @@ class SqlQueriesSource(Source):
         if self.report.num_queries_parsed % 1000 == 0:
             logger.info(f"Parsed {self.report.num_queries_parsed} queries")
 
-        sanitized_query = clean_and_pretty_sql(entry.query)
+        sanitized_query = clean_and_pretty_sql(entry.query,self.config.platform)
         result = sqlglot_lineage(
             sql=sanitized_query,
             schema_resolver=self.schema_resolver,
