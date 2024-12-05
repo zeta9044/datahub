@@ -58,6 +58,7 @@ a = Analysis([main_script],
                # Sqlglot lib
                'sqlglotrs',
                'sqlglot',
+               'sqlglot.dialects.dialect',
 
                # DataHub Core
                'datahub.ingestion.reporting',
@@ -67,6 +68,7 @@ a = Analysis([main_script],
                'datahub.emitter',
                'datahub.emitter.sql_parsing_builder',
                'datahub.sql_parsing',
+               'datahub.sql_parsing.patch_sqlglot',
                'datahub.sql_parsing.sqlglot_lineage',
                'datahub.sql_parsing.query_types',
                'datahub.sql_parsing.sqlglot_utils',
