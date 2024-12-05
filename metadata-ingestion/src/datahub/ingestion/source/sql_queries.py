@@ -191,6 +191,7 @@ class SqlQueriesSource(Source):
 
         if result.debug_info.table_error:
             logger.info(f"Error parsing table lineage, {result.debug_info.table_error}")
+            logger.info(f"query meta information, {entry.custom_keys}")
             self.report.num_table_parse_failures += 1
             for downstream_urn in set(entry.downstream_tables):
                 self.builder.add_lineage(
