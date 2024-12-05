@@ -58,6 +58,7 @@ a = Analysis([main_script],
                # Sqlglot lib
                'sqlglotrs',
                'sqlglot',
+               'sqlglot.lineage',
                'sqlglot.dialects.dialect',
 
                # DataHub Core
