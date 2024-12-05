@@ -516,6 +516,17 @@ def ingest(gms):
         logger.error(f"Error during metadata ingestion: {str(e)}")
 
 
+
+@cli.command()
+@click.option('--prj_id', required=True, help='Project ID')
+def make(prj_id):
+    """ Make sqlsrc.json from sqlsrc.dat."""
+    try:
+        make_sqlsrc.make_sqlsrc(prj_id=str(prj_id))
+        click.echo("Making sqlsrc.json completed successfully.")
+    except Exception as e:
+        click.echo(f"Error during making sqlsrc.json: {str(e)}")
+
 @cli.command()
 @click.option('--gms', default='http://localhost:8000', help='GMS server URL')
 @click.option('--prj_id', required=True, help='Project ID')
