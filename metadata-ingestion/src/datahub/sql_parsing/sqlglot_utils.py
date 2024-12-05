@@ -447,11 +447,6 @@ def clean_and_pretty_sql(query: str, dialect: Optional[str] = None) -> str:
     Returns:
         str: Comment-removed SQL with original structure preserved
     """
-    # 정규표현식을 사용해 주석 제거
-    # -- 스타일 주석 제거
-    query = re.sub(r"--.*?(\r\n|\r|\n)", " ", query)
-    # /* */ 스타일 주석 제거
-    query = re.sub(r"/\*.*?\*/", " ", query, flags=re.DOTALL)
     try:
         parsed = sqlglot.parse_one(query, read=dialect)  # 필요한 경우 다른 dialect 사용
         # 파싱된 쿼리를 렌더링하여 주석이 제거된 결과 반환
