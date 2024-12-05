@@ -5,9 +5,8 @@ from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
 from sqlglot.lineage import Node, to_node
 from sqlglot.optimizer import Scope, build_scope, qualify
+from sqlglot.dialects.dialect import DialectType
 
-if t.TYPE_CHECKING:
-    from sqlglot.dialects.dialect import DialectType
 # 기존 함수를 백업
 original_lineage = sqlglot.lineage.lineage
 
