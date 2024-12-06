@@ -100,7 +100,7 @@ usage_common = {
 sqlglot_lib = {
     # Using an Acryl fork of sqlglot.
     # https://github.com/tobymao/sqlglot/compare/main...hsheth2:sqlglot:main?expand=1
-    "sqlglot[rs]==25.32.1",
+    "sqlglot[rs]==25.33.0",
 }
 
 classification_lib = {
