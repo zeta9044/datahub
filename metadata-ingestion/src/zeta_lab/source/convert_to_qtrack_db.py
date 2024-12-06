@@ -336,12 +336,27 @@ class ConvertQtrackSource(Source):
         except Exception as e:
             logger.error(f"Error processing lineage for {downstream_urn}: {e}")
             raise
+
     def delete_existing_records(self):
         logger.info("Deleting existing records from target tables")
 
         delete_queries = [
-            "DELETE FROM ais0080 WHERE src_prj_id = %s",
-            "DELETE FROM ais0081 WHERE src_prj_id = %s"
+            """
+            DELETE FROM ais0080 
+            USING ais0010
+            WHERE ais0010.prj_id = ais0080.src_prj_id 
+            AND ais0010.file_id = ais0080.src_mte_table_id
+            AND ais0010.end_date IS NOT NULL
+            AND ais0080.src_prj_id = %s
+            """,
+            """
+            DELETE FROM ais0081 
+            USING ais0010
+            WHERE ais0010.prj_id = ais0081.src_prj_id 
+            AND ais0010.file_id = ais0081.src_mte_table_id
+            AND ais0010.end_date IS NOT NULL
+            AND ais0081.src_prj_id = %s
+            """
         ]
 
         try:
@@ -349,7 +364,7 @@ class ConvertQtrackSource(Source):
             try:
                 cur = conn.cursor()
                 try:
-                    prj_id = self.config.get('prj_id', '')  # prj_id를 설정에서 가져오거나 적절한 방법으로 설정
+                    prj_id = self.config.get('prj_id', '')
 
                     for query in delete_queries:
                         cur.execute(query, (prj_id,))
@@ -367,7 +382,6 @@ class ConvertQtrackSource(Source):
                 self.pg_pool.putconn(conn)
         except Exception as e:
             logger.error(f"Error in database operation for deleting existing records: {e}")
-
 
     def transfer_to_postgresql(self):
         """DuckDB에서 PostgreSQL로 데이터 전송"""
