@@ -345,7 +345,7 @@ class ConvertQtrackSource(Source):
             DELETE FROM ais0080 
             USING ais0010
             WHERE ais0010.prj_id = ais0080.src_prj_id 
-            AND ais0010.file_id = ais0080.src_mte_table_id
+            AND ais0010.file_id = cast(ais0080.src_mte_table_id as numeric)
             AND ais0010.end_date IS NOT NULL
             AND ais0080.src_prj_id = %s
             """,
@@ -353,7 +353,7 @@ class ConvertQtrackSource(Source):
             DELETE FROM ais0081 
             USING ais0010
             WHERE ais0010.prj_id = ais0081.src_prj_id 
-            AND ais0010.file_id = ais0081.src_mte_table_id
+            AND ais0010.file_id = cast(ais0081.src_mte_table_id as numeric)
             AND ais0010.end_date IS NOT NULL
             AND ais0081.src_prj_id = %s
             """
