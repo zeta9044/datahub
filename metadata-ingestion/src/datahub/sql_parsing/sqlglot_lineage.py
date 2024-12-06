@@ -974,6 +974,9 @@ def _sqlglot_lineage_inner(
     # To eliminate CTE column mapping errors, optimize the statement from the beginning.
     # original_statement,statement = statement,statement.copy()
     original_statement = statement
+
+    # for lineage
+    from zeta_lab.sqlglot.eliminate_pivot import eliminate_pivot
     statement = sqlglot.optimizer.optimizer.optimize(
         statement,
         dialect=dialect,
@@ -984,6 +987,7 @@ def _sqlglot_lineage_inner(
             sqlglot.optimizer.optimizer.merge_subqueries,
             sqlglot.optimizer.optimizer.eliminate_ctes,
             sqlglot.optimizer.optimizer.quote_identifiers,
+            eliminate_pivot
         ),
     )
 
