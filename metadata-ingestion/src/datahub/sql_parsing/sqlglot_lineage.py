@@ -390,7 +390,7 @@ def _prepare_query_columns(
                 catalog=default_db,
                 db=default_schema,
                 rules=(
-                    # sqlglot.optimizer.optimizer.qualify,
+                    sqlglot.optimizer.optimizer.qualify,
                     sqlglot.optimizer.optimizer.pushdown_projections,
                     sqlglot.optimizer.optimizer.unnest_subqueries,
                     sqlglot.optimizer.optimizer.merge_subqueries,
@@ -978,7 +978,7 @@ def _sqlglot_lineage_inner(
         statement,
         dialect=dialect,
         rules=(
-            # sqlglot.optimizer.optimizer.qualify,
+            sqlglot.optimizer.optimizer.qualify,
             sqlglot.optimizer.optimizer.pushdown_projections,
             sqlglot.optimizer.optimizer.unnest_subqueries,
             sqlglot.optimizer.optimizer.merge_subqueries,
