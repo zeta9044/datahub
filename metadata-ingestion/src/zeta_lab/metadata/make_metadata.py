@@ -72,7 +72,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
             system_id TEXT,
             biz_id TEXT,
             system_biz_id TEXT,
-            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance)
+            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance,system_biz_id)
         )
         ''')
 
