@@ -21,6 +21,7 @@ from zeta_lab.utilities.tool import format_time, infer_type_from_native
 
 logger = logging.getLogger(__name__)
 
+
 def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
     """
     :param pg_dsn: PostgreSQL Data Source Name used to establish connection to the PostgreSQL database.
@@ -72,7 +73,7 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
             system_id TEXT,
             biz_id TEXT,
             system_biz_id TEXT,
-            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance,system_biz_id)
+            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance,default_db, default_schema,system_biz_id)
         )
         ''')
 
