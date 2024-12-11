@@ -1,9 +1,9 @@
-import os
 import logging
-
-from zeta_lab.utilities.tool import get_server_pid
-from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
+import os
+import json
 from datahub.ingestion.run.pipeline import Pipeline
+from zeta_lab.utilities.meta_utils import get_meta_instance, META_COLS
+from zeta_lab.utilities.tool import get_server_pid, filter_json, format_json_to_report
 
 # Set up logging
 logging.basicConfig(
@@ -11,6 +11,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",  # 포맷 설정
 )
 logger = logging.getLogger(__name__)
+
 
 def extract_lineage(gms_server_url, prj_id):
     """
@@ -50,7 +51,7 @@ def extract_lineage(gms_server_url, prj_id):
             metadatadb_path,
             prj_id,
             select_columns=(
-            META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
+                META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
         )
         logger.info(f"platform:{platform}")
         logger.info(f"platform_instance:{platform_instance}")
@@ -68,6 +69,8 @@ def extract_lineage(gms_server_url, prj_id):
         if os.path.exists(lineage_path):
             os.remove(lineage_path)
             logger.info(f"Previous {lineage_path} has been removed")
+
+        report_file = f"{prj_id}_lineage.txt"
 
         duckdb_sink_config = {
             "type": "datahub-lite",
@@ -95,7 +98,15 @@ def extract_lineage(gms_server_url, prj_id):
                     "env": "PROD",
                 }
             },
-            "sink": duckdb_sink_config
+            "sink": duckdb_sink_config,
+            "reporting": [
+                {
+                    "type": "file",
+                     "config": {
+                         "filename": report_file
+                     }
+                 },
+            ]
         }
 
         # run pipeline
@@ -104,6 +115,25 @@ def extract_lineage(gms_server_url, prj_id):
         pipeline.run()
         pipeline.raise_from_status()
         logger.info("Pipeline execution completed successfully")
+
+        try:
+            # Pretty-print the JSON output
+            with open(report_file, "r") as input_file:
+                data = json.load(input_file)
+                filtered_data = filter_json(data)
+                report_txt = format_json_to_report(filtered_data)
+
+            with open(report_file, "w") as output_file:
+                output_file.write(report_txt)
+
+        except FileNotFoundError:
+            logger.error("File not found. Please check the file path.")
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON format. Please check the file contents.")
+        except PermissionError:
+            logger.error("Permission denied. Check read/write permissions for the file.")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred: {str(e)}")
 
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}", exc_info=True)

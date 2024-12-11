@@ -449,6 +449,7 @@ def get_server_pid():
             return proc.info['pid']
     return None
 
+
 def extract_name_from_urn(urn: str) -> str:
     # URN을 콤마로 분리
     parts = urn.split(',')
@@ -461,7 +462,7 @@ def extract_name_from_urn(urn: str) -> str:
         raise ValueError("Unable to extract dataset name from URN.")
 
 
-def create_default_dataset_properties(system_biz_id:str, dataset_urn:str):
+def create_default_dataset_properties(system_biz_id: str, dataset_urn: str):
     return {
         'aspect': {
             'datasetProperties': {
@@ -486,3 +487,122 @@ def create_default_dataset_properties(system_biz_id:str, dataset_urn:str):
             'runId': 'no-run-id-provided'
         }
     }
+
+
+def filter_json(json_data):
+    """
+    :param json_data: A dictionary representing JSON data that may contain sections
+                      'cli', 'source', and 'sink' with information to be filtered.
+    :return: The modified JSON data with specific fields removed from the 'cli',
+             'source.report', and 'sink' sections.
+    """
+    # Remove specified fields from cli section
+    if 'cli' in json_data:
+        cli_fields_to_remove = [
+            'cli_version',
+            'cli_entry_location',
+            'models_version',
+            'py_exec_path'
+        ]
+        for field in cli_fields_to_remove:
+            if field in json_data['cli']:
+                del json_data['cli'][field]
+
+    # Remove failure metrics from source report section
+    if 'source' in json_data and 'report' in json_data['source']:
+        report_fields_to_remove = [
+            'num_column_parse_failures',
+            'num_table_parse_failures',
+            'table_failure_rate',
+            'column_failure_rate'
+        ]
+        for field in report_fields_to_remove:
+            if field in json_data['source']['report']:
+                del json_data['source']['report'][field]
+
+    # Remove specified fields from sink section
+    if 'sink' in json_data:
+        if 'type' in json_data['sink']:
+            del json_data['sink']['type']
+
+    return json_data
+
+
+def format_json_to_report(json_data):
+    """
+    :param json_data: Dictionary containing JSON data structure with keys like 'cli', 'source', 'sink', and their nested details required for generating a system report. This includes system environment information, execution summary, dataset details, issues, and informational messages.
+    :return: A formatted string report derived from the given JSON data, which provides structured insights into the system environment, execution details, dataset processing, errors, warnings, and additional information messages.
+    """
+    # Initialize output string
+    output = []
+
+    # System Environment Section
+    output.append("System Environment")
+    output.append("-------------------")
+    cli = json_data.get('cli', {})
+    output.append(f"Python Version: {cli.get('py_version', 'N/A').split()[0]}")
+    output.append(f"OS: {cli.get('os_details', 'N/A')}")
+    output.append(f"Memory Usage: {cli.get('mem_info', 'N/A')}")
+    output.append(
+        f"Disk Usage: {cli.get('disk_info', {}).get('used', 'N/A')} / {cli.get('disk_info', {}).get('total', 'N/A')}")
+    output.append(f"Threads: {cli.get('thread_count', 'N/A')}")
+    output.append("")
+
+    # Execution Summary Section
+    source = json_data.get('source', {}).get('report', {})
+    sink = json_data.get('sink', {}).get('report', {})
+    output.append("Execution Summary")
+    output.append("-------------------")
+    output.append(f"Start Time: {source.get('start_time', 'N/A').split('(')[0].strip()}")
+    output.append(f"Running Time: {source.get('running_time', 'N/A')}")
+    output.append(f"Queries Parsed: {source.get('num_queries_parsed', 'N/A')}")
+    output.append(
+        f"Events Produced: {source.get('events_produced', 0)} ({source.get('events_produced_per_sec', 0)}/sec)")
+    output.append(
+        f"Total Records Written: {sink.get('total_records_written', 0)} ({sink.get('records_written_per_second', 0)}/sec)")
+    output.append("")
+
+    # Dataset Information Section
+    output.append("Dataset Information")
+    output.append("-------------------")
+    datasets = source.get('entities', {}).get('dataset', [])
+    total_datasets = len(datasets)
+    output.append(f"Total {total_datasets} Snowflake datasets processed")
+    output.append("Main datasets:")
+    for dataset in datasets[:5]:  # First 5 datasets
+        clean_dataset = dataset.split(',')[1].split(')')[0]  # Extract dataset name from URN
+        output.append(f"- {clean_dataset}")
+    if total_datasets > 5:
+        output.append(f"[{total_datasets - 5} other datasets]")
+    output.append("")
+
+    # Issues Section
+    output.append("Issues")
+    output.append("-------------------")
+    output.append(f"Errors: {'None' if not source.get('failures') else len(source.get('failures'))}")
+    output.append(f"Warnings: {'None' if not source.get('warnings') else len(source.get('warnings'))}")
+
+    # Info Messages Section
+    infos = source.get('infos', [])
+    output.append("Info Messages:")
+    if not infos:
+        output.append("None")
+    else:
+        for i, info in enumerate(infos, 1):
+            output.append(f"{i}. {info.get('message', 'N/A')}")
+            if 'context' in info:
+                output.append("   Context: ")
+                for ctx in info['context']:
+                    # Truncate long context entries (like SQL queries)
+                    if len(ctx) > 100:
+                        ctx = ctx[:100] + "..."
+                    output.append(f"   - {ctx}")
+
+    return "\n".join(output)
+
+# 사용 예시:
+# with open('input.json', 'r') as f:
+#     json_data = json.load(f)
+# report_text = format_json_to_report(json_data)
+# with open('output.txt', 'w') as f:
+#     f.write(report_text)

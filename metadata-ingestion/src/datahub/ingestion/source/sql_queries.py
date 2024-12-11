@@ -172,7 +172,6 @@ class SqlQueriesSource(Source):
         self.report.num_queries_parsed += 1
         if self.report.num_queries_parsed % 1000 == 0:
             logger.info(f"Parsed {self.report.num_queries_parsed} queries")
-
         sanitized_query = clean_and_pretty_sql(entry.query,self.config.platform)
         result = sqlglot_lineage(
             sql=sanitized_query,
@@ -190,8 +189,12 @@ class SqlQueriesSource(Source):
             entry.custom_keys['query_type_props'] = json.dumps(result.query_type_props)
 
         if result.debug_info.table_error:
-            logger.info(f"Error parsing table lineage, {result.debug_info.table_error}")
-            logger.info(f"query meta information, {entry.custom_keys}")
+            header = "\n".join([f"{k}:{entry.custom_keys[k]}" for k in ['prj_id', 'file_id', 'sql_id']])
+            context_str = f"\n{header}\n{entry.custom_keys['query_text']}"
+            self.report.info(
+                message=f"Error parsing table lineage, {result.debug_info.table_error}",
+                context=context_str
+            )
             self.report.num_table_parse_failures += 1
             for downstream_urn in set(entry.downstream_tables):
                 self.builder.add_lineage(
