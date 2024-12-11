@@ -1,5 +1,7 @@
 import os
 import logging
+import sys
+
 from datahub.ingestion.run.pipeline import Pipeline
 
 # Set up logging
@@ -21,16 +23,19 @@ def make_sqlsrc(prj_id):
         # repository path
         engine_home = os.getenv("LIAENG_HOME")
         if not engine_home:
-            raise ValueError("Please define environment variable 'LIAENG_HOME' to your local Lia Engine home path.")
+            logger.error("Please define environment variable 'LIAENG_HOME' to your local Lia Engine home path.")
+            sys.exit(1)
         base_path = os.path.join(engine_home, 'repositorys')
         if not os.path.exists(base_path):
-            raise ValueError("Repository path does not exist.")
+            logger.error("Repository path does not exist.")
+            sys.exit(1)
         logger.info(f"Repository base path validated: {base_path}")
 
         # sqlsrc.dat path
         input_file = os.path.join(base_path, str(prj_id), 'sqlsrc.dat')
         if not os.path.exists(input_file):
-            raise ValueError("sqlsrc.dat file does not exist.")
+            logger.error("sqlsrc.dat file does not exist.")
+            sys.exit(1)
         logger.info(f"Input file found: {input_file}")
 
         output_file = os.path.join(base_path, str(prj_id), 'sqlsrc.json')
@@ -58,4 +63,5 @@ def make_sqlsrc(prj_id):
         logger.info("Pipeline execution completed successfully")
 
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}", exc_info=True)
+        logger.error(f"Error occurred: {str(e)}", exc_info=False)
+        sys.exit(1)
