@@ -404,7 +404,7 @@ class ConvertQtrackSource(Source):
             transfer_manager = PartitionedTransferManager(transfer_config)
 
             # Process tables in order
-            table_process_order = ['ais0102', 'ais0103', 'ais0112', 'ais0113', 'ais0080', 'ais0081']
+            table_process_order = ['ais0102', 'ais0103', 'ais0109', 'ais0112', 'ais0113', 'ais0080', 'ais0081']
 
             for table_name in table_process_order:
                 logger.info(f"Starting transfer for {table_name}")
