@@ -5,7 +5,7 @@ from typing import Iterable, List, Dict
 import duckdb
 from dataclasses import dataclass
 from pydantic import Field
-from sqlglot import parse_one
+from sqlglot import parse_one, exp
 
 from datahub.configuration.source_common import (
     EnvConfigMixin,
@@ -226,7 +226,8 @@ class SqlFlowSource(Source):
             nonlocal flow_entries, column_counter
             flow_id = len(flow_entries) + 1
 
-            if hasattr(node, 'this') and node.this == 'column':
+            # Column 타입인 경우 column_counter 증가
+            if isinstance(node, exp.Column):
                 column_counter += 1
                 column_no = column_counter
             else:
@@ -250,11 +251,11 @@ class SqlFlowSource(Source):
             flow_entries.append(entry)
 
             for child in node.args.values():
-                if hasattr(child, 'args'):
+                if isinstance(child, exp.Expression):
                     process_node(child, depth + 1, flow_id)
                 elif isinstance(child, list):
                     for item in child:
-                        if hasattr(item, 'args'):
+                        if isinstance(item, exp.Expression):
                             process_node(item, depth + 1, flow_id)
 
             return flow_entries
