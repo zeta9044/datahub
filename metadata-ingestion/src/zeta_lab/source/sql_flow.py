@@ -25,6 +25,7 @@ from datahub.ingestion.api.source import (
     SourceReport,
 )
 from datahub.ingestion.api.workunit import MetadataWorkUnit
+from zeta_lab.batch.batch_processor import BatchConfig, DuckDBBatchProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -32,27 +33,15 @@ logger = logging.getLogger(__name__)
 class SqlEntry:
     """
     A data class to represent SQL entries with query and customizable key-value pairs.
-
-    Attributes:
-        query (str): SQL query as a string.
-        custom_keys (Dict[str, str]): Optional dictionary of custom key-value pairs.
-
-    Methods:
-        create(cls, entry_dict: dict) -> "SqlEntry":
-            Class method to create an instance of SqlEntry from a dictionary.
-            The dictionary must include a "query" key for the SQL query string
-            and may optionally include a "custom_keys" key for extended query file customizations.
     """
     query: str
     custom_keys: Dict[str, str]
 
     @classmethod
-    def create(
-            cls, entry_dict: dict
-    ) -> "SqlEntry":
+    def create(cls, entry_dict: dict) -> "SqlEntry":
         return cls(
             query=entry_dict["query"],
-            custom_keys=entry_dict.get("custom_keys", {}),  # add custom_keys for extended query_file
+            custom_keys=entry_dict.get("custom_keys", {}),
         )
 
 class SqlFlowSourceConfig(PlatformInstanceConfigMixin, EnvConfigMixin):
@@ -60,20 +49,57 @@ class SqlFlowSourceConfig(PlatformInstanceConfigMixin, EnvConfigMixin):
     query_file: str = Field(description="Path to query file to ingest")
     platform: str = Field(description="The platform for which to generate data (e.g. snowflake)")
     duckdb_path: str = Field(description="duckdb path")
+    batch_size: int = Field(default=5000, description="Size of each batch for processing")
+    chunk_size: int = Field(default=1000, description="Size of chunks within each batch")
 
 class SqlFlowSourceReport(SourceReport):
     """Report for SQL Flow processing"""
     num_queries_parsed: int = 0
     num_parsing_failures: int = 0
+    num_batches_processed: int = 0
 
     def compute_stats(self) -> None:
-        """Compute statistics for the processing"""
         super().compute_stats()
         self.parsing_failure_rate = (
             f"{self.num_parsing_failures / self.num_queries_parsed:.4f}"
             if self.num_queries_parsed
             else "0"
         )
+
+class SqlFlowBatchProcessor(DuckDBBatchProcessor):
+    """Batch processor for SQL flow entries"""
+
+    def prepare_data(self, item: Dict) -> List[tuple]:
+        """Convert flow entries to tuples for batch insertion"""
+        return [(
+            entry['prj_id'],
+            entry['file_id'],
+            entry['sql_id'],
+            entry['flow_id'],
+            entry['obj_id'],
+            entry['func_id'],
+            entry['flow_src'],
+            entry['line_no'],
+            entry['column_no'],
+            entry['flow_depth'],
+            entry['rel_flow_id'],
+            entry['sub_sql_id'],
+            entry['sql_grp']
+        ) for entry in item['entries']]
+
+    def process_chunk(self, chunk: List[tuple]) -> bool:
+        """Process a chunk of flow entries"""
+        try:
+            insert_query = """
+                INSERT INTO ais0109 VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+            """
+            self.connection.executemany(insert_query, chunk)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error processing chunk: {e}")
+            return False
 
 @platform_name("SQL Flow")
 @config_class(SqlFlowSourceConfig)
@@ -82,13 +108,44 @@ class SqlFlowSourceReport(SourceReport):
 class SqlFlowSource(Source):
     """
     A source that extracts flow information from SQL queries and stores it in AIS0109 table.
-    This source processes SQL queries to analyze their structure and execution flow.
     """
     def __init__(self, ctx: PipelineContext, config: SqlFlowSourceConfig):
         super().__init__(ctx)
         self.config = config
         self.report = SqlFlowSourceReport()
         self.duckdb_conn = duckdb.connect(self.config.duckdb_path)
+        self._initialize_tables()
+
+        # Initialize batch processor
+        batch_config = BatchConfig(
+            chunk_size=self.config.chunk_size,
+            batch_size=self.config.batch_size,
+            logger=logger
+        )
+        self.batch_processor = SqlFlowBatchProcessor(self.duckdb_conn, batch_config)
+
+    def _initialize_tables(self):
+        """Initialize the required DuckDB tables"""
+        self.duckdb_conn.execute("""
+        DROP TABLE IF EXISTS ais0109;
+        """)
+        self.duckdb_conn.execute("""
+            CREATE TABLE IF NOT EXISTS ais0109 (
+                prj_id VARCHAR,
+                file_id BIGINT,
+                sql_id BIGINT,
+                flow_id BIGINT,
+                obj_id BIGINT,
+                func_id BIGINT,
+                flow_src VARCHAR,
+                line_no BIGINT,
+                column_no BIGINT,
+                flow_depth BIGINT,
+                rel_flow_id BIGINT,
+                sub_sql_id BIGINT,
+                sql_grp BIGINT
+            )
+        """)
 
     @classmethod
     def create(cls, config_dict: dict, ctx: PipelineContext) -> "SqlFlowSource":
@@ -96,31 +153,38 @@ class SqlFlowSource(Source):
         return cls(ctx, config)
 
     def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
-        """Process queries and yield workunits"""
         logger.info(f"Processing queries from {self.config.query_file}")
 
-        with open(self.config.query_file) as f:
-            for line in f:
-                try:
-                    query_dict = json.loads(line)
-                    entry = SqlEntry.create(query_dict)
-                    yield from self._process_query(entry)
+        try:
+            with open(self.config.query_file) as f:
+                for line in f:
+                    try:
+                        query_dict = json.loads(line)
+                        entry = SqlEntry.create(query_dict)
+                        yield from self._process_query(entry)
 
-                    self.report.num_queries_parsed += 1
-                    if self.report.num_queries_parsed % 1000 == 0:
-                        logger.info(f"Processed {self.report.num_queries_parsed} queries")
+                        self.report.num_queries_parsed += 1
+                        if self.report.num_queries_parsed % 1000 == 0:
+                            logger.info(f"Processed {self.report.num_queries_parsed} queries")
 
-                except Exception as e:
-                    self.report.num_parsing_failures += 1
-                    logger.error(f"Error processing query: {e}")
+                    except Exception as e:
+                        self.report.num_parsing_failures += 1
+                        logger.error(f"Error processing query: {e}")
+
+            # Process any remaining items in the batch
+            self.batch_processor.finalize()
+
+        except Exception as e:
+            logger.error(f"Error processing file: {e}")
+            raise
+        finally:
+            self.close()
 
     def _process_query(self, entry: SqlEntry) -> Iterable[MetadataWorkUnit]:
         """Process a single query and extract its flow information"""
         try:
             query_lines = entry.query.splitlines()
-
-            # Parse the query
-            parsed = parse_one(entry.query,dialect=self.config.platform)
+            parsed = parse_one(entry.query, dialect=self.config.platform)
 
             # Extract flow information
             flow_entries = self._extract_flow_entries(
@@ -135,8 +199,8 @@ class SqlFlowSource(Source):
                 }
             )
 
-            # Store in DuckDB
-            self._store_flow_entries(flow_entries)
+            # Add to batch processor
+            self.batch_processor.add_item({'entries': flow_entries})
 
         except Exception as e:
             logger.error(f"Error processing query: {e}")
@@ -162,7 +226,6 @@ class SqlFlowSource(Source):
             nonlocal flow_entries, column_counter
             flow_id = len(flow_entries) + 1
 
-            # Handle column nodes specially
             if hasattr(node, 'this') and node.this == 'column':
                 column_counter += 1
                 column_no = column_counter
@@ -186,7 +249,6 @@ class SqlFlowSource(Source):
             }
             flow_entries.append(entry)
 
-            # Process child nodes
             for child in node.args.values():
                 if hasattr(child, 'args'):
                     process_node(child, depth + 1, flow_id)
@@ -199,61 +261,15 @@ class SqlFlowSource(Source):
 
         return process_node(parsed_query)
 
-    def _store_flow_entries(self, flow_entries: List[dict]) -> None:
-        """Store flow entries in DuckDB AIS0109 table"""
-        try:
-            # Ensure table exists
-            self.duckdb_conn.execute("""
-                CREATE TABLE IF NOT EXISTS ais0109 (
-                    prj_id VARCHAR,
-                    file_id BIGINT,
-                    sql_id BIGINT,
-                    flow_id BIGINT,
-                    obj_id BIGINT,
-                    func_id BIGINT,
-                    flow_src VARCHAR,
-                    line_no BIGINT,
-                    column_no BIGINT,
-                    flow_depth BIGINT,
-                    rel_flow_id BIGINT,
-                    sub_sql_id BIGINT,
-                    sql_grp BIGINT
-                )
-            """)
-
-            # Insert flow entries
-            insert_query = """
-                INSERT INTO ais0109 VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
-            """
-
-            values = [(
-                entry['prj_id'],
-                entry['file_id'],
-                entry['sql_id'],
-                entry['flow_id'],
-                entry['obj_id'],
-                entry['func_id'],
-                entry['flow_src'],
-                entry['line_no'],
-                entry['column_no'],
-                entry['flow_depth'],
-                entry['rel_flow_id'],
-                entry['sub_sql_id'],
-                entry['sql_grp']
-            ) for entry in flow_entries]
-
-            self.duckdb_conn.executemany(insert_query, values)
-
-        except Exception as e:
-            logger.error(f"Error storing flow entries: {e}")
-            raise
-
     def get_report(self):
         """Return processing report"""
         return self.report
 
     def close(self):
         """Clean up resources"""
-        pass
+        try:
+            if hasattr(self, 'duckdb_conn'):
+                self.duckdb_conn.close()
+                logger.info("DuckDB connection closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing DuckDB connection: {e}")
