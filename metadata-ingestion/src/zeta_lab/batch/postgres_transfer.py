@@ -320,7 +320,7 @@ class PartitionedTransferManager:
     def _initialize_table_configs(self) -> Dict[str, PostgresTableConfig]:
         """테이블별 설정 초기화"""
         configs = {}
-        for table_name in ['ais0102', 'ais0103', 'ais0112', 'ais0113', 'ais0080', 'ais0081']:
+        for table_name in ['ais0102', 'ais0103', 'ais0109','ais0112', 'ais0113', 'ais0080', 'ais0081']:
             duckdb_columns = self._get_duckdb_columns(table_name)
             # 여기를 수정: self.create_config -> TableConfigFactory.create_config
             configs[table_name] = TableConfigFactory.create_config(table_name, duckdb_columns)
