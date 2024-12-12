@@ -134,6 +134,7 @@ class SqlsrcToJSONConverter(Source):
             return data
         except Exception as e:
             self.report.report_failure("Failed to read input file", f"Error: {str(e)}")
+            logger.exception("An error occurred while reading the input file")
             return []
 
     def _write_json_file(self, data: List[Dict[str, Any]]) -> None:
