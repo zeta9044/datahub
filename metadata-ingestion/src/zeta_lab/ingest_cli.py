@@ -23,6 +23,7 @@ from zeta_lab.pipeline import ingest_metadata, make_sqlsrc, extract_lineage, mov
 from zeta_lab.source.sqlsrc_to_json_converter import SqlsrcToJSONConverter
 from zeta_lab.source.convert_to_qtrack_db import ConvertQtrackSource
 from zeta_lab.source.qtrack_meta_source import QtrackMetaSource
+from zeta_lab.source.sql_flow import SqlFlowSource
 from zeta_lab.utilities.tool import get_server_pid
 
 # Set up logging
@@ -49,6 +50,7 @@ def safe_register(registry, name, class_):
 
 # Register sources
 safe_register(source_registry, "sql-queries", SqlQueriesSource)
+safe_register(source_registry, "sql-flow", SqlFlowSource)
 safe_register(source_registry, "sqlsrc-to-json-converter", SqlsrcToJSONConverter)
 safe_register(source_registry, "convert-to-qtrack-db", ConvertQtrackSource)
 safe_register(source_registry, "qtrack-meta-source", QtrackMetaSource)

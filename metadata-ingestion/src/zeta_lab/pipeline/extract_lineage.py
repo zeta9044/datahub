@@ -111,10 +111,9 @@ def extract_lineage(gms_server_url, prj_id):
 
         # run pipeline
         logger.info("Starting pipeline execution")
-        pipeline = Pipeline.create(queries_pipeline_config)
-        pipeline.run()
-        pipeline.raise_from_status()
-        logger.info("Pipeline execution completed successfully")
+        queries_pipeline = Pipeline.create(queries_pipeline_config)
+        queries_pipeline.run()
+        queries_pipeline.raise_from_status()
 
         try:
             # Pretty-print the JSON output
@@ -134,6 +133,26 @@ def extract_lineage(gms_server_url, prj_id):
             logger.error("Permission denied. Check read/write permissions for the file.")
         except Exception as e:
             logger.error(f"An unexpected error occurred: {str(e)}")
+
+        sqlflow_pipeline_config = {
+            "source": {
+                "type": "sql-flow",
+                "config": {
+                    "query_file": sqlsrc_json_path,
+                    "platform": platform,
+                    "duckdb_path": lineage_path
+                }
+            },
+            "sink": {
+                "type": "console",
+            }
+        }
+
+        # run pipeline
+        sqlflow_pipeline = Pipeline.create(sqlflow_pipeline_config)
+        sqlflow_pipeline.run()
+        sqlflow_pipeline.raise_from_status()
+        logger.info("Pipeline execution completed successfully")
 
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}", exc_info=True)
