@@ -226,13 +226,6 @@ class SqlFlowSource(Source):
             nonlocal flow_entries, column_counter
             flow_id = len(flow_entries) + 1
 
-            # Column 타입인 경우 column_counter 증가
-            if isinstance(node, exp.Column):
-                column_counter += 1
-                column_no = column_counter
-            else:
-                column_no = 0
-
             entry = {
                 'prj_id': query_info['prj_id'],
                 'file_id': int(query_info['file_id']),
@@ -242,7 +235,7 @@ class SqlFlowSource(Source):
                 'func_id': int(query_info['func_id']),
                 'flow_src': type(node).__name__,
                 'line_no': get_node_line_no(node),
-                'column_no': column_no,
+                'column_no': 0,
                 'flow_depth': depth,
                 'rel_flow_id': parent_flow_id if parent_flow_id else -1,
                 'sub_sql_id': -1,
