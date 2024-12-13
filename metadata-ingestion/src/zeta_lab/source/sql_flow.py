@@ -239,7 +239,7 @@ class SqlFlowSource(Source):
                 'flow_depth': depth,
                 'rel_flow_id': parent_flow_id if parent_flow_id else -1,
                 'sub_sql_id': -1,
-                'sql_grp': 0
+                'sql_grp': int(query_info['sql_id'])
             }
             flow_entries.append(entry)
 
