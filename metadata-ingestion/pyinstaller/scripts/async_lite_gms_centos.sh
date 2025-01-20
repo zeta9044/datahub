@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Move to the project root directory
-projectRoot="/git/datahub/metadata-ingestion"
+projectRoot=$HOME/centos7-docker/datahub/metadata-ingestion
 cd "$projectRoot"
 
 # Function to remove items with error handling
