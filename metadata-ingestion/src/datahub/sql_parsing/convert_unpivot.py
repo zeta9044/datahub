@@ -37,7 +37,7 @@ def convert_unpivot_to_lateral(ast: Expression) -> Expression:
     return _transform_from_clause(ast.copy())
 
 
-def has_unpivot(node: Expression) -> bool:
+def _has_unpivot(node: Expression) -> bool:
     """
     :param node: An instance of the Expression class representing a node in the expression tree.
     :return: A boolean indicating whether the given node contains an "unpivot" argument within its "pivots".
@@ -69,7 +69,7 @@ def _transform_from_clause(node: Expression) -> Expression:
     if isinstance(node, Select):
         if node.args.get("from"):
             from_table = node.args["from"].args["this"]
-            if has_unpivot(from_table):
+            if _has_unpivot(from_table):
                 # Unpivot 정보 수집
                 unpivot_info = _collect_unpivot_info(from_table)
 
