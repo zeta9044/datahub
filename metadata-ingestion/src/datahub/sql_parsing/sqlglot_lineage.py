@@ -53,6 +53,8 @@ from datahub.utilities.cooperative_timeout import (
     cooperative_timeout,
 )
 
+from datahub.sql_parsing.convert_unpivot import convert_unpivot_to_lateral
+
 logger = logging.getLogger(__name__)
 
 Urn = str
@@ -978,7 +980,7 @@ def _sqlglot_lineage_inner(
         statement,
         dialect=dialect,
         rules=(
-            sqlglot.optimizer.optimizer.qualify,
+            # sqlglot.optimizer.optimizer.qualify,
             sqlglot.optimizer.optimizer.pushdown_projections,
             sqlglot.optimizer.optimizer.unnest_subqueries,
             sqlglot.optimizer.optimizer.merge_subqueries,
@@ -986,6 +988,9 @@ def _sqlglot_lineage_inner(
             sqlglot.optimizer.optimizer.quote_identifiers,
         ),
     )
+
+    # TO eliminate UNPIVOT
+    statement = convert_unpivot_to_lateral(statement)
 
     # Convert COPY INTO to INSERT INTO SELECT for extracting Lineage
     if isinstance(original_statement, sqlglot.exp.Copy):
