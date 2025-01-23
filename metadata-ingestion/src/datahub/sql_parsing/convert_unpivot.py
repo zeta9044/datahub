@@ -1,7 +1,7 @@
-from dataclasses import dataclass
 from typing import List, Dict
 
-from sqlglot import exp, maybe_parse
+from dataclasses import dataclass
+from sqlglot import exp
 from sqlglot.expressions import (
     Expression, Select, Table, Join, Pivot, Column, Identifier,
     TableAlias, Boolean, Tuple as TupleExp, Subquery
@@ -280,6 +280,8 @@ def _convert_unpivot_node(node: Table, unpivot_info: UnpivotInfo) -> Expression:
     # value_expressions: ex) [val1, val2]
     # name_column: ex) "c"
     union_parts = []
+    is_first_select_name_col = True
+    is_first_select_value_col = True
     for idx, pivot_set in enumerate(unpivot_info.pivot_column_sets):
         # pivot_set는 expression들의 리스트.
         # 만약 단일컬럼 UNPIVOT이면 [ Column(this=Identifier(c1)) ] 식이 됨.
@@ -305,12 +307,20 @@ def _convert_unpivot_node(node: Table, unpivot_info: UnpivotInfo) -> Expression:
             # 여러 개면 뒤쪽 expression들도 합쳐보거나, 별도 처리를 할 수도 있음.
             pivot_label += "_" + "_".join(e.sql(dialect="snowflake") for e in pivot_set[1:])
 
-        select_exprs.append(
-            exp.Alias(
-                this=exp.Literal.string(pivot_label),
-                alias=exp.Identifier(this=unpivot_info.name_column)
+        if is_first_select_name_col:
+            select_exprs.append(
+                exp.Alias(
+                    this=exp.Literal.string(pivot_label),
+                    alias=exp.Identifier(this=unpivot_info.name_column)
+                )
             )
-        )
+            is_first_select_name_col = False
+        else:
+            select_exprs.append(
+                exp.Alias(
+                    this=exp.Literal.string(pivot_label)
+                )
+            )
 
         # value_expressions와 pivot_set가 1:1 매핑된다고 가정
         # 예: (val1, val2) -> (c1, c2)
@@ -345,12 +355,21 @@ def _convert_unpivot_node(node: Table, unpivot_info: UnpivotInfo) -> Expression:
                 # 여기서는 단순하게 pivot_expr 자체를 사용하되, c1이 Column이면 table alias를 붙이는 식으로 재귀 변환
                 pivot_expr_with_alias = _apply_table_alias_to_expr(pivot_expr_with_alias, unpivot_info.original_alias)
 
-            select_exprs.append(
-                exp.Alias(
-                    this=pivot_expr_with_alias,
-                    alias=exp.Identifier(this=alias_name)
+
+            if is_first_select_value_col:
+                select_exprs.append(
+                    exp.Alias(
+                        this=pivot_expr_with_alias,
+                        alias=exp.Identifier(this=alias_name)
+                    )
                 )
-            )
+                is_first_select_value_col = False
+            else:
+                select_exprs.append(
+                    exp.Alias(
+                        this=pivot_expr_with_alias
+                    )
+                )
 
         union_parts.append(Select(expressions=select_exprs))
 
