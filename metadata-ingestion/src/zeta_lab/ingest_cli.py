@@ -28,7 +28,7 @@ from zeta_lab.source.sql_flow import SqlFlowSource
 from zeta_lab.utilities.tool import get_server_pid
 
 # datahub 로거 설정
-debug = get_boolean_env_variable("DATAHUB_DEBUG", False)
+debug = get_boolean_env_variable("CLI_DEBUG", False)
 logging.getLogger("datahub").setLevel(logging.DEBUG if debug else logging.INFO)
 logger = logging.getLogger(__name__)
 
