@@ -62,6 +62,7 @@ SQL_LINEAGE_TIMEOUT_ENABLED = get_boolean_env_variable(
     "SQL_LINEAGE_TIMEOUT_ENABLED", True
 )
 SQL_LINEAGE_TIMEOUT_SECONDS = 10
+SQL_PARSER_TRACE = get_boolean_env_variable("DATAHUB_SQL_PARSER_TRACE", False)
 
 RULES_BEFORE_TYPE_ANNOTATION: tuple = tuple(
     filter(
@@ -354,10 +355,11 @@ def _prepare_query_columns(
 
             return node
 
-        # logger.debug(
-        #     "Prior to case normalization sql %s",
-        #     statement.sql(pretty=True, dialect=dialect),
-        # )
+        if SQL_PARSER_TRACE:
+            logger.debug(
+                "Prior to case normalization sql %s",
+                statement.sql(pretty=True, dialect=dialect),
+            )
         statement = statement.transform(_sqlglot_force_column_normalizer, copy=False)
         # logger.debug(
         #     "Sql after casing normalization %s",
@@ -1052,6 +1054,14 @@ def _sqlglot_lineage_inner(
     logger.debug(
         f"Resolved {total_schemas_resolved} of {total_tables_discovered} table schemas"
     )
+    if SQL_PARSER_TRACE:
+        for qualified_table, schema_info in table_name_schema_mapping.items():
+            logger.debug(
+                "Table name %s resolved to %s with schema %s",
+                qualified_table,
+                table_name_urn_mapping[qualified_table],
+                schema_info,
+            )
 
     column_lineage: Optional[List[_ColumnLineageInfo]] = None
     try:
