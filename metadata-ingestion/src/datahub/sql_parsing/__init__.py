@@ -1,4 +1,8 @@
 # src/__init__.py
-from datahub.sql_parsing.patch_sqlglot import apply_patches
+from datahub.sql_parsing.patch_sqlglot import LineageWrapper
 
-apply_patches()
+# Initialize the wrapper
+lineage_wrapper = LineageWrapper()
+
+# Apply patches
+lineage_wrapper.apply()
