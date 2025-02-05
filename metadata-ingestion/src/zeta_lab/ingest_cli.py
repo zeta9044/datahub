@@ -552,13 +552,16 @@ def batch(gms, prj_id):
     try:
         click.echo("Starting batch operation...")
 
-        click.echo("Step 1: making SQL source...")
+        click.echo("Step 1: ingesting metadata...")
+        ingest_metadata.ingest_metadata(gms_server_url=gms)
+
+        click.echo("Step 2: making SQL source...")
         make_sqlsrc.make_sqlsrc(prj_id=str(prj_id))
 
-        click.echo("Step 2: Extracting lineage...")
+        click.echo("Step 3: Extracting lineage...")
         extract_lineage.extract_lineage(gms_server_url=gms, prj_id=str(prj_id))
 
-        click.echo("Step 3: Moving lineage...")
+        click.echo("Step 4: Moving lineage...")
         move_lineage.move_lineage(gms_server_url=gms, prj_id=str(prj_id))
 
         click.echo("Batch operation completed successfully.")
