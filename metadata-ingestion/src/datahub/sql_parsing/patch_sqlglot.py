@@ -1,9 +1,10 @@
 import typing as t
 import logging
 from dataclasses import dataclass
+import sqlglot
 from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
-from sqlglot.lineage import Node, get_source_from_udtf
+from sqlglot.lineage import Node
 from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.dialects.dialect import DialectType
 from sqlglot.optimizer.scope import ScopeType
@@ -201,7 +202,7 @@ class LineageWrapper:
                 if table is None:
                     logger.warning(f"Column {c} has no table attribute, skipping.")
                     continue
-                table = get_source_from_udtf(scope, table)
+                table = sqlglot.lineage.get_source_from_udtf(scope, table)
                 source = scope.sources.get(table)
 
                 if isinstance(source, Scope):
