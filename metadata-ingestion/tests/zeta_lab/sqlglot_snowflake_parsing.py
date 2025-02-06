@@ -68,3 +68,5 @@ for q in query.split(";"):
     except Exception as e:
         print(f"\nquery:\n {q}",q)
         print(f"Error: {e}")
+
+
