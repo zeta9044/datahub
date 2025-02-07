@@ -1,4 +1,3 @@
-from datahub.sql_parsing._sqlglot_patch import SQLGLOT_PATCHED
 from datahub.sql_parsing.sqlglot_lineage_patches import apply_patches
 apply_patches()
 
@@ -56,8 +55,6 @@ from datahub.utilities.cooperative_timeout import (
     CooperativeTimeoutError,
     cooperative_timeout,
 )
-
-assert SQLGLOT_PATCHED
 
 logger = logging.getLogger(__name__)
 
