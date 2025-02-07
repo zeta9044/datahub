@@ -1,4 +1,6 @@
 from datahub.sql_parsing._sqlglot_patch import SQLGLOT_PATCHED
+from datahub.sql_parsing.sqlglot_lineage_patches import apply_patches
+apply_patches()
 
 import dataclasses
 import functools
@@ -54,6 +56,8 @@ from datahub.utilities.cooperative_timeout import (
     CooperativeTimeoutError,
     cooperative_timeout,
 )
+
+assert SQLGLOT_PATCHED
 
 logger = logging.getLogger(__name__)
 
@@ -397,8 +401,8 @@ def _prepare_query_columns(
                     sqlglot.optimizer.optimizer.qualify,
                     sqlglot.optimizer.optimizer.pushdown_projections,
                     sqlglot.optimizer.optimizer.unnest_subqueries,
-                    sqlglot.optimizer.optimizer.merge_subqueries,
-                    sqlglot.optimizer.optimizer.eliminate_ctes,
+                    # sqlglot.optimizer.optimizer.merge_subqueries,
+                    # sqlglot.optimizer.optimizer.eliminate_ctes,
                     sqlglot.optimizer.optimizer.quote_identifiers,
                 ),
             )
