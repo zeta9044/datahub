@@ -54,6 +54,7 @@ a = Analysis([main_script],
                'time',
                'typing',
                'click',
+               'patchy.api'
 
                # Sqlglot lib
                'sqlglotrs',
