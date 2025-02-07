@@ -1,4 +1,4 @@
-from datahub.sql_parsing.sqlglot_lineage_patches import apply_patches
+from datahub.sql_parsing.sqlglot_patches import apply_patches
 apply_patches()
 
 import dataclasses
