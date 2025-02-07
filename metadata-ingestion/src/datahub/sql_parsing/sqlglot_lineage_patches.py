@@ -1,14 +1,18 @@
+import itertools
 import typing as t
+from copy import deepcopy
 
 import sqlglot
 from sqlglot import exp, maybe_parse
-from sqlglot.errors import SqlglotError
+from sqlglot.errors import SqlglotError, OptimizeError
 from sqlglot.lineage import Node
 from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.optimizer.scope import ScopeType
+from sqlglot.optimizer.unnest_subqueries import _replace, _other_operand
 
 if t.TYPE_CHECKING:
     from sqlglot.dialects.dialect import DialectType
+
 
 # Helper functions
 def _extract_source_column(expr: exp.Expression) -> t.Optional[exp.Expression]:
@@ -38,6 +42,7 @@ def _extract_source_column(expr: exp.Expression) -> t.Optional[exp.Expression]:
     except AttributeError:
         return expr
 
+
 def _find_table_source(scope: Scope, table: str):
     """Find the source node of a table."""
     if not isinstance(scope, Scope) or not table:
@@ -54,8 +59,8 @@ def _find_table_source(scope: Scope, table: str):
     # Regular table
     return scope.sources.get(table)
 
+
 class SQLGlotLineagePatcher:
-    """Manages sqlglot lineage patches with proper handling of dependencies"""
 
     def __init__(self):
         self.original_to_node = sqlglot.lineage.to_node
@@ -303,7 +308,7 @@ class SQLGlotLineagePatcher:
     ) -> Node:
 
         expression = maybe_parse(sql, dialect=dialect)
-        #column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
+        # column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
         assert isinstance(column, str)
 
         if sources:
@@ -354,13 +359,338 @@ class SQLGlotLineagePatcher:
 
         self._patched = False
 
+
+class SQLGlotDeepcopyPatcher:
+
+    def __init__(self):
+        self.original__deepcopy__ = sqlglot.expressions.Expression.__deepcopy__
+        self._patched = False
+
+    def enhanced__deepcopy__(self, memo):
+        import datahub.utilities.cooperative_timeout
+        datahub.utilities.cooperative_timeout.cooperate()
+
+        root = self.__class__()
+        stack = [(self, root)]
+
+        while stack:
+            node, copy = stack.pop()
+
+            if node.comments is not None:
+                copy.comments = deepcopy(node.comments)
+            if node._type is not None:
+                copy._type = deepcopy(node._type)
+            if node._meta is not None:
+                copy._meta = deepcopy(node._meta)
+            if node._hash is not None:
+                copy._hash = node._hash
+
+            for k, vs in node.args.items():
+                if hasattr(vs, "parent"):
+                    stack.append((vs, vs.__class__()))
+                    copy.set(k, stack[-1][-1])
+                elif type(vs) is list:
+                    copy.args[k] = []
+
+                    for v in vs:
+                        if hasattr(v, "parent"):
+                            stack.append((v, v.__class__()))
+                            copy.append(k, stack[-1][-1])
+                        else:
+                            copy.append(k, v)
+                else:
+                    copy.args[k] = vs
+
+        return root
+
+    def patch(self):
+        if self._patched:
+            return
+
+        # Store original functions
+        self.original__deepcopy__ = sqlglot.expressions.Expression.__deepcopy__
+
+        # Replace with enhanced versions
+        sqlglot.expressions.Expression.__deepcopy__ = self.enhanced__deepcopy__
+
+        self._patched = True
+
+    def unpatch(self):
+        if not self._patched:
+            return
+
+        sqlglot.expressions.Expression.__deepcopy__ = self.original__deepcopy__
+
+        self._patched = False
+
+
+class SQLGlotScopeTraversePatcher:
+
+    def __init__(self):
+        self.original_traverse = sqlglot.optimizer.scope.Scope.traverse
+        self._patched = False
+
+    def enhanced_traverse(self):
+        """
+        Traverse the scope tree from this node.
+
+        Yields:
+            Scope: scope instances in depth-first-search post-order
+        """
+        stack = [self]
+        seen_scopes = set()
+        result = []
+        while stack:
+            scope = stack.pop()
+
+            # Scopes aren't hashable, so we use id(scope) instead.
+            if id(scope) in seen_scopes:
+                raise OptimizeError(f"Scope {scope} has a circular scope dependency")
+            seen_scopes.add(id(scope))
+
+            result.append(scope)
+            stack.extend(
+                itertools.chain(
+                    scope.cte_scopes,
+                    scope.union_scopes,
+                    scope.table_scopes,
+                    scope.subquery_scopes,
+                )
+            )
+
+        yield from reversed(result)
+
+    def patch(self):
+        if self._patched:
+            return
+
+        # Store original functions
+        self.original_traverse = sqlglot.optimizer.scope.Scope.traverse
+
+        # Replace with enhanced versions
+        sqlglot.optimizer.scope.Scope.traverse = self.enhanced_traverse
+
+        self._patched = True
+
+    def unpatch(self):
+        if not self._patched:
+            return
+
+        sqlglot.optimizer.scope.Scope.traverse = self.original_traverse
+
+        self._patched = False
+
+
+class SQLGlotUnnestSubqueryPatcher:
+
+    def __init__(self):
+        self.original_decorrelate = sqlglot.optimizer.unnest_subqueries.decorrelate
+        self._patched = False
+
+    def enhenced_decorrelate(select, parent_select, external_columns, next_alias_name):
+        where = select.args.get("where")
+
+        if not where or where.find(exp.Or) or select.find(exp.Limit, exp.Offset):
+            return
+
+        table_alias = next_alias_name()
+        keys = []
+
+        # for all external columns in the where statement, find the relevant predicate
+        # keys to convert it into a join
+        for column in external_columns:
+            if column.find_ancestor(exp.Where) is not where:
+                return
+
+            predicate = column.find_ancestor(exp.Predicate)
+
+            if not predicate or predicate.find_ancestor(exp.Where) is not where:
+                return
+
+            if isinstance(predicate, exp.Binary):
+                key = (
+                    predicate.right
+                    if any(node is column for node in predicate.left.walk())
+                    else predicate.left
+                )
+            else:
+                return
+
+            keys.append((key, column, predicate))
+
+        if not any(isinstance(predicate, exp.EQ) for *_, predicate in keys):
+            return
+
+        is_subquery_projection = any(
+            node is select.parent
+            for node in map(lambda s: s.unalias(), parent_select.selects)
+            if isinstance(node, exp.Subquery)
+        )
+
+        value = select.selects[0]
+        key_aliases = {}
+        group_by = []
+
+        for key, _, predicate in keys:
+            # if we filter on the value of the subquery, it needs to be unique
+            if key == value.this:
+                key_aliases[key] = value.alias
+                group_by.append(key)
+            else:
+                if key not in key_aliases:
+                    key_aliases[key] = next_alias_name()
+                # all predicates that are equalities must also be in the unique
+                # so that we don't do a many to many join
+                if isinstance(predicate, exp.EQ) and key not in group_by:
+                    group_by.append(key)
+
+        parent_predicate = select.find_ancestor(exp.Predicate)
+
+        # if the value of the subquery is not an agg or a key, we need to collect it into an array
+        # so that it can be grouped. For subquery projections, we use a MAX aggregation instead.
+        agg_func = exp.Max if is_subquery_projection else exp.ArrayAgg
+        if not value.find(exp.AggFunc) and value.this not in group_by:
+            select.select(
+                exp.alias_(agg_func(this=value.this), value.alias, quoted=False),
+                append=False,
+                copy=False,
+            )
+
+        # exists queries should not have any selects as it only checks if there are any rows
+        # all selects will be added by the optimizer and only used for join keys
+        if isinstance(parent_predicate, exp.Exists):
+            select.args["expressions"] = []
+
+        for key, alias in key_aliases.items():
+            if key in group_by:
+                # add all keys to the projections of the subquery
+                # so that we can use it as a join key
+                if isinstance(parent_predicate, exp.Exists) or key != value.this:
+                    select.select(f"{key} AS {alias}", copy=False)
+            else:
+                select.select(exp.alias_(agg_func(this=key.copy()), alias, quoted=False), copy=False)
+
+        alias = exp.column(value.alias, table_alias)
+        other = _other_operand(parent_predicate)
+        op_type = type(parent_predicate.parent) if parent_predicate else None
+
+        if isinstance(parent_predicate, exp.Exists):
+            alias = exp.column(list(key_aliases.values())[0], table_alias)
+            parent_predicate = _replace(parent_predicate, f"NOT {alias} IS NULL")
+        elif isinstance(parent_predicate, exp.All):
+            assert issubclass(op_type, exp.Binary)
+            predicate = op_type(this=other, expression=exp.column("_x"))
+            parent_predicate = _replace(
+                parent_predicate.parent, f"ARRAY_ALL({alias}, _x -> {predicate})"
+            )
+        elif isinstance(parent_predicate, exp.Any):
+            assert issubclass(op_type, exp.Binary)
+            if value.this in group_by:
+                predicate = op_type(this=other, expression=alias)
+                parent_predicate = _replace(parent_predicate.parent, predicate)
+            else:
+                predicate = op_type(this=other, expression=exp.column("_x"))
+                parent_predicate = _replace(parent_predicate, f"ARRAY_ANY({alias}, _x -> {predicate})")
+        elif isinstance(parent_predicate, exp.In):
+            if value.this in group_by:
+                parent_predicate = _replace(parent_predicate, f"{other} = {alias}")
+            else:
+                parent_predicate = _replace(
+                    parent_predicate,
+                    f"ARRAY_ANY({alias}, _x -> _x = {parent_predicate.this})",
+                )
+        else:
+            if is_subquery_projection and select.parent.alias:
+                alias = exp.alias_(alias, select.parent.alias)
+
+            # COUNT always returns 0 on empty datasets, so we need take that into consideration here
+            # by transforming all counts into 0 and using that as the coalesced value
+            if value.find(exp.Count):
+
+                def remove_aggs(node):
+                    if isinstance(node, exp.Count):
+                        return exp.Literal.number(0)
+                    elif isinstance(node, exp.AggFunc):
+                        return exp.null()
+                    return node
+
+                alias = exp.Coalesce(this=alias, expressions=[value.this.transform(remove_aggs)])
+
+            select.parent.replace(alias)
+
+        for key, column, predicate in keys:
+            predicate.replace(exp.true())
+            nested = exp.column(key_aliases[key], table_alias)
+
+            if is_subquery_projection:
+                key.replace(nested)
+                if not isinstance(predicate, exp.EQ):
+                    parent_select.where(predicate, copy=False)
+                continue
+
+            if key in group_by:
+                key.replace(nested)
+            elif isinstance(predicate, exp.EQ):
+                if parent_predicate:
+                    parent_predicate = _replace(
+                        parent_predicate,
+                        f"({parent_predicate} AND ARRAY_CONTAINS({nested}, {column}))",
+                    )
+            else:
+                key.replace(exp.to_identifier("_x"))
+                if parent_predicate:
+                    parent_predicate = _replace(
+                        parent_predicate,
+                        f"({parent_predicate} AND ARRAY_ANY({nested}, _x -> {predicate}))",
+                    )
+
+        parent_select.join(
+            select.group_by(*group_by, copy=False),
+            on=[predicate for *_, predicate in keys if isinstance(predicate, exp.EQ)],
+            join_type="LEFT",
+            join_alias=table_alias,
+            copy=False,
+        )
+
+    def patch(self):
+        if self._patched:
+            return
+
+        # Store original functions
+        self.original_decorrelate = sqlglot.optimizer.unnest_subqueries.decorrelate
+
+        # Replace with enhanced versions
+        sqlglot.optimizer.unnest_subqueries.decorrelate = self.enhenced_decorrelate
+
+        self._patched = True
+
+    def unpatch(self):
+        if not self._patched:
+            return
+
+        sqlglot.optimizer.unnest_subqueries.decorrelate = self.original_decorrelate
+
+        self._patched = False
+
+
 # Create a global instance
 _lineage_patcher = SQLGlotLineagePatcher()
+_deepcopy_patcher = SQLGlotDeepcopyPatcher()
+_scope_traverse_patcher = SQLGlotScopeTraversePatcher()
+_unnest_subquery_patcher = SQLGlotUnnestSubqueryPatcher()
+
 
 def apply_patches():
     """Apply all sqlglot patches"""
+    _deepcopy_patcher.patch()
+    _scope_traverse_patcher.patch()
+    _unnest_subquery_patcher.patch()
     _lineage_patcher.patch()
+
 
 def remove_patches():
     """Remove all sqlglot patches"""
+    _deepcopy_patcher.unpatch()
+    _scope_traverse_patcher.unpatch()
+    _unnest_subquery_patcher.unpatch()
     _lineage_patcher.unpatch()
