@@ -435,7 +435,7 @@ def extract_insert_target_columns(
     return is_column_specified, target_columns
 
 
-def clean_and_pretty_sql(query: str, dialect: Optional[str] = None) -> str:
+def clean_and_pretty_sql(query: str, dialect: sqlglot.Dialect) -> str:
     """
     Removes all comments from SQL query and preserves the original query structure.
 
@@ -448,7 +448,7 @@ def clean_and_pretty_sql(query: str, dialect: Optional[str] = None) -> str:
         str: Comment-removed SQL with original structure preserved
     """
     try:
-        parsed = sqlglot.parse_one(query, read=dialect)  # 필요한 경우 다른 dialect 사용
+        parsed = parse_statement(query, dialect=dialect)  # 필요한 경우 다른 dialect 사용
         # 파싱된 쿼리를 렌더링하여 주석이 제거된 결과 반환
         return parsed.sql(pretty=True, dialect=dialect)
     except Exception as e:
