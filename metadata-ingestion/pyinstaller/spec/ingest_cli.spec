@@ -58,7 +58,7 @@ a = Analysis([main_script],
                # Sqlglot lib
                'sqlglotrs',
                'sqlglot',
-               'sqlglot.dialects.dialect.DialectType',
+               'sqlglot.dialects',
                'sqlglot.lineage',
                'sqlglot.optimizer.scope',
 
