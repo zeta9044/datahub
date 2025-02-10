@@ -1,6 +1,3 @@
-from datahub.sql_parsing.sqlglot_patches import apply_patches
-apply_patches()
-
 import dataclasses
 import functools
 import itertools
@@ -364,10 +361,10 @@ def _prepare_query_columns(
                 statement.sql(pretty=True, dialect=dialect),
             )
         statement = statement.transform(_sqlglot_force_column_normalizer, copy=False)
-        # logger.debug(
-        #     "Sql after casing normalization %s",
-        #     statement.sql(pretty=True, dialect=dialect),
-        # )
+        logger.debug(
+            "Sql after casing normalization %s",
+            statement.sql(pretty=True, dialect=dialect),
+        )
 
     if not is_create_ddl:
         # Optimize the statement + qualify column references.
@@ -383,7 +380,7 @@ def _prepare_query_columns(
             # - column qualification enabled
             # - running the full pre-type annotation optimizer
 
-            # logger.debug("Schema: %s", sqlglot_db_schema.mapping)
+            logger.debug("Schema: %s", sqlglot_db_schema.mapping)
             statement = sqlglot.optimizer.optimizer.optimize(
                 statement,
                 dialect=dialect,
