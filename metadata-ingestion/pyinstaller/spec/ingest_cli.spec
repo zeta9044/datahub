@@ -53,7 +53,8 @@ a = Analysis([main_script],
                'threading',
                'time',
                'typing',
-               'click'
+               'click',
+               'typing',
 
                # Sqlglot lib
                'sqlglotrs',
@@ -119,7 +120,7 @@ a = Analysis([main_script],
                'datahub.emitter.mcp',
                'datahub.emitter.mcp_builder',
                'datahub.metadata.schema_classes',
-               'datahub.utilities.server_config_util'
+               'datahub.utilities.server_config_util',
              ],
              hookspath=[],
              hooksconfig={},
