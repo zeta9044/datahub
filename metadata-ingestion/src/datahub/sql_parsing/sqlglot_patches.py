@@ -1,5 +1,5 @@
 import itertools
-from typing import cast, Mapping, Optional, Dict
+import typing as t
 from copy import deepcopy
 
 import sqlglot
@@ -9,10 +9,13 @@ from sqlglot.lineage import Node
 from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.optimizer.scope import ScopeType
 from sqlglot.optimizer.unnest_subqueries import _replace, _other_operand
-from sqlglot.dialects.dialect import DialectType
+
+if t.TYPE_CHECKING:
+    from sqlglot.dialects.dialect import DialectType
+
 
 # Helper functions
-def _extract_source_column(expr: exp.Expression) -> Optional[exp.Expression]:
+def _extract_source_column(expr: exp.Expression) -> t.Optional[exp.Expression]:
     """Safely extracts source column from expression."""
     if not isinstance(expr, exp.Expression):
         raise TypeError(f"Expected exp.Expression, got {type(expr)}")
@@ -68,10 +71,10 @@ class SQLGlotLineagePatcher:
             column: str | int,
             scope: Scope,
             dialect: DialectType,
-            scope_name: Optional[str] = None,
-            upstream: Optional[Node] = None,
-            source_name: Optional[str] = None,
-            reference_node_name: Optional[str] = None,
+            scope_name: t.Optional[str] = None,
+            upstream: t.Optional[Node] = None,
+            source_name: t.Optional[str] = None,
+            reference_node_name: t.Optional[str] = None,
             trim_selects: bool = True,
     ) -> Node:
         # Find the specific select clause that is the source of the column we want.
@@ -134,7 +137,7 @@ class SQLGlotLineagePatcher:
             # a version that has only the column we care about.
             #   "x", SELECT x, y FROM foo
             #     => "x", SELECT x FROM foo
-            source = cast(exp.Expression, scope.expression.select(select, append=False))
+            source = t.cast(exp.Expression, scope.expression.select(select, append=False))
         else:
             source = scope.expression
 
@@ -296,10 +299,10 @@ class SQLGlotLineagePatcher:
             self,
             column: str | exp.Column,
             sql: str | exp.Expression,
-            schema: Optional[Dict | sqlglot.Schema] = None,
-            sources: Optional[Mapping[str, str | exp.Query]] = None,
+            schema: t.Optional[t.Dict | sqlglot.Schema] = None,
+            sources: t.Optional[t.Mapping[str, str | exp.Query]] = None,
             dialect: sqlglot.dialects.dialect.DialectType = None,
-            scope: Optional[Scope] = None,
+            scope: t.Optional[Scope] = None,
             trim_selects: bool = True,
             **kwargs,
     ) -> Node:
@@ -311,7 +314,7 @@ class SQLGlotLineagePatcher:
         if sources:
             expression = exp.expand(
                 expression,
-                {k: cast(exp.Query, maybe_parse(v, dialect=dialect)) for k, v in sources.items()},
+                {k: t.cast(exp.Query, maybe_parse(v, dialect=dialect)) for k, v in sources.items()},
                 dialect=dialect,
             )
 

@@ -54,13 +54,16 @@ a = Analysis([main_script],
                'time',
                'typing',
                'click',
+               'typing',
 
                # Sqlglot lib
                'sqlglotrs',
                'sqlglot',
                'sqlglot.lineage',
                'sqlglot.optimizer.scope',
+               'sqlglot.optimizer.scope.ScopeType',
                'sqlglot.dialects.dialect',
+               'sqlglot.dialects.dialect.DialectType',
 
                # DataHub Core
                'datahub.ingestion.reporting',
