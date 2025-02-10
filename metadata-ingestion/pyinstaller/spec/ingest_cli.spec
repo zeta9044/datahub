@@ -27,6 +27,9 @@ if zeta_lab_path is None:
 print('zeta_lab_path:',zeta_lab_path)
 datahub_path = os.path.join(os.path.dirname(zeta_lab_path), 'datahub')
 print('datahub_path:',datahub_path)
+sqlglot_path = os.path.join(os.path.dirname(zeta_lab_path), 'sqlglot')
+print('sqlglot_path:',sqlglot_path)
+
 
 # 메인 스크립트 경로
 main_script = os.path.join(zeta_lab_path, 'ingest_cli.py')
@@ -35,11 +38,12 @@ if not os.path.exists(main_script):
     raise FileNotFoundError(f"메인 스크립트를 찾을 수 없습니다: {main_script}")
 
 a = Analysis([main_script],
-             pathex=[zeta_lab_path, datahub_path],
+             pathex=[zeta_lab_path, datahub_path, sqlglot_path],
              binaries=[],
              datas=[
                  (zeta_lab_path, 'zeta_lab'),
                  (datahub_path, 'datahub'),
+                 (sqlglot_path, 'sqlglot'),
                   (os.path.join(base_path, 'venv/lib/python3.10/site-packages/setuptools/_vendor/jaraco'), 'setuptools/_vendor/jaraco'),
              ],
              hiddenimports=[
