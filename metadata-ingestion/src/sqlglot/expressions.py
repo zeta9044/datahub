@@ -264,9 +264,6 @@ class Expression(metaclass=_Expression):
         return self._meta
 
     def __deepcopy__(self, memo):
-        import datahub.utilities.cooperative_timeout
-        datahub.utilities.cooperative_timeout.cooperate()
-
         root = self.__class__()
         stack = [(self, root)]
 
