@@ -9,7 +9,7 @@ from sqlglot.lineage import Node
 from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.optimizer.scope import ScopeType
 from sqlglot.optimizer.unnest_subqueries import _replace, _other_operand
-from sqlglot.dialects import DialectType
+from sqlglot.dialects.dialect import DialectType
 
 # Helper functions
 def _extract_source_column(expr: exp.Expression) -> Optional[exp.Expression]:
