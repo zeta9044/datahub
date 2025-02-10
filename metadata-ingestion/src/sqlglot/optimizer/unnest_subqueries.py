@@ -261,16 +261,18 @@ def decorrelate(select, parent_select, external_columns, next_alias_name):
         if key in group_by:
             key.replace(nested)
         elif isinstance(predicate, exp.EQ):
-            parent_predicate = _replace(
-                parent_predicate,
-                f"({parent_predicate} AND ARRAY_CONTAINS({nested}, {column}))",
-            )
+            if parent_predicate:
+                parent_predicate = _replace(
+                    parent_predicate,
+                    f"({parent_predicate} AND ARRAY_CONTAINS({nested}, {column}))",
+                )
         else:
             key.replace(exp.to_identifier("_x"))
-            parent_predicate = _replace(
-                parent_predicate,
-                f"({parent_predicate} AND ARRAY_ANY({nested}, _x -> {predicate}))",
-            )
+            if parent_predicate:
+                parent_predicate = _replace(
+                    parent_predicate,
+                    f"({parent_predicate} AND ARRAY_ANY({nested}, _x -> {predicate}))",
+                )
 
     parent_select.join(
         select.group_by(*group_by, copy=False),
