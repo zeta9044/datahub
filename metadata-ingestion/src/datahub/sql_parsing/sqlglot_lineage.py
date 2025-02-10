@@ -395,8 +395,8 @@ def _prepare_query_columns(
                     sqlglot.optimizer.optimizer.qualify,
                     sqlglot.optimizer.optimizer.pushdown_projections,
                     sqlglot.optimizer.optimizer.unnest_subqueries,
-                    # sqlglot.optimizer.optimizer.merge_subqueries,
-                    # sqlglot.optimizer.optimizer.eliminate_ctes,
+                    sqlglot.optimizer.optimizer.merge_subqueries,
+                    sqlglot.optimizer.optimizer.eliminate_ctes,
                     sqlglot.optimizer.optimizer.quote_identifiers,
                 ),
             )
@@ -974,21 +974,21 @@ def _sqlglot_lineage_inner(
     statement = parse_statement(sql, dialect=dialect)
 
     # To eliminate CTE column mapping errors, optimize the statement from the beginning.
-    original_statement,statement = statement,statement.copy()
-    # original_statement = statement
-    # statement = sqlglot.optimizer.optimizer.optimize(
-    #     statement,
-    #     dialect=dialect,
-    #     validate_qualify_columns=False,
-    #     rules=(
-    #         sqlglot.optimizer.optimizer.qualify,
-    #         sqlglot.optimizer.optimizer.pushdown_projections,
-    #         sqlglot.optimizer.optimizer.unnest_subqueries,
-    #         sqlglot.optimizer.optimizer.merge_subqueries,
-    #         sqlglot.optimizer.optimizer.eliminate_ctes,
-    #         sqlglot.optimizer.optimizer.quote_identifiers,
-    #     ),
-    # )
+    # original_statement,statement = statement,statement.copy()
+    original_statement = statement
+    statement = sqlglot.optimizer.optimizer.optimize(
+        statement,
+        dialect=dialect,
+        validate_qualify_columns=False,
+        rules=(
+            sqlglot.optimizer.optimizer.qualify,
+            sqlglot.optimizer.optimizer.pushdown_projections,
+            sqlglot.optimizer.optimizer.unnest_subqueries,
+            sqlglot.optimizer.optimizer.merge_subqueries,
+            sqlglot.optimizer.optimizer.eliminate_ctes,
+            sqlglot.optimizer.optimizer.quote_identifiers,
+        ),
+    )
 
     # Convert COPY INTO to INSERT INTO SELECT for extracting Lineage
     if isinstance(original_statement, sqlglot.exp.Copy):
