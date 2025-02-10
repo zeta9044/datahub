@@ -240,11 +240,11 @@ def to_node(
     select = _extract_source_column(select)
 
     # Find all columns that went into creating this one to list their lineage nodes.
-    source_columns = set(find_all_in_scope(select, exp.Column))
+    source_columns = list(find_all_in_scope(select, exp.Column))
 
     # If the source is a UDTF find columns used in the UTDF to generate the table
     if isinstance(source, exp.UDTF):
-        source_columns |= set(source.find_all(exp.Column))
+        source_columns |= list(source.find_all(exp.Column))
         derived_tables = [
             source.expression.parent
             for source in scope.sources.values()
