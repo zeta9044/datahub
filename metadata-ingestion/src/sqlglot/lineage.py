@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import typing as t
+
 from dataclasses import dataclass, field
 
 from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
-from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, normalize_identifiers, qualify
+from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.optimizer.scope import ScopeType
+from sqlglot.helper import extract_source_column, find_table_source
 
 if t.TYPE_CHECKING:
     from sqlglot.dialects.dialect import DialectType
@@ -66,14 +68,14 @@ class Node:
 
 
 def lineage(
-    column: str | exp.Column,
-    sql: str | exp.Expression,
-    schema: t.Optional[t.Dict | Schema] = None,
-    sources: t.Optional[t.Mapping[str, str | exp.Query]] = None,
-    dialect: DialectType = None,
-    scope: t.Optional[Scope] = None,
-    trim_selects: bool = True,
-    **kwargs,
+        column: str | exp.Column,
+        sql: str | exp.Expression,
+        schema: t.Optional[t.Dict | Schema] = None,
+        sources: t.Optional[t.Mapping[str, str | exp.Query]] = None,
+        dialect: DialectType = None,
+        scope: t.Optional[Scope] = None,
+        trim_selects: bool = True,
+        **kwargs,
 ) -> Node:
     """Build the lineage graph for a column of a SQL query.
 
@@ -122,14 +124,14 @@ def lineage(
 
 
 def to_node(
-    column: str | int,
-    scope: Scope,
-    dialect: DialectType,
-    scope_name: t.Optional[str] = None,
-    upstream: t.Optional[Node] = None,
-    source_name: t.Optional[str] = None,
-    reference_node_name: t.Optional[str] = None,
-    trim_selects: bool = True,
+        column: str | int,
+        scope: Scope,
+        dialect: DialectType,
+        scope_name: t.Optional[str] = None,
+        upstream: t.Optional[Node] = None,
+        source_name: t.Optional[str] = None,
+        reference_node_name: t.Optional[str] = None,
+        trim_selects: bool = True,
 ) -> Node:
     # Find the specific select clause that is the source of the column we want.
     # This can either be a specific, named select or a generic `*` clause.
@@ -237,7 +239,7 @@ def to_node(
 
     # Process the select expression to extract its source column information,
     # handling any aliases or nested column references
-    select = _extract_source_column(select)
+    select = extract_source_column(select)
 
     # Find all columns that went into creating this one to list their lineage nodes.
     source_columns = list(find_all_in_scope(select, exp.Column))
@@ -260,29 +262,56 @@ def to_node(
     }
 
     pivots = scope.pivots
-    pivot = pivots[0] if len(pivots) == 1 and not pivots[0].unpivot else None
-    if pivot:
-        # For each aggregation function, the pivot creates a new column for each field in category
-        # combined with the aggfunc. So the columns parsed have this order: cat_a_value_sum, cat_a,
-        # b_value_sum, b. Because of this step wise manner the aggfunc 'sum(value) as value_sum'
-        # belongs to the column indices 0, 2, and the aggfunc 'max(price)' without an alias belongs
-        # to the column indices 1, 3. Here, only the columns used in the aggregations are of interest
-        # in the lineage, so lookup the pivot column name by index and map that with the columns used
-        # in the aggregation.
-        #
-        # Example: PIVOT (SUM(value) AS value_sum, MAX(price)) FOR category IN ('a' AS cat_a, 'b')
+    pivot = pivots[0] if len(pivots) == 1 else None
+    unpivot_column_mapping = {}
+    unpivot_source_columns = {}
+    pivot_column_mapping = {}
+    pivot_columns = {}
+    if pivot and not pivot.unpivot:
+        # 기존 PIVOT 처리 로직
         pivot_columns = pivot.args["columns"]
         pivot_aggs_count = len(pivot.expressions)
-
-        pivot_column_mapping = {}
         for i, agg in enumerate(pivot.expressions):
             agg_cols = list(agg.find_all(exp.Column))
             for col_index in range(i, len(pivot_columns), pivot_aggs_count):
                 pivot_column_mapping[pivot_columns[col_index].name] = agg_cols
 
+    elif pivot and pivot.unpivot:
+        # value 컬럼 정보 (USER_CNT)
+        value_column = pivot.args.get("expressions", [])[0]
+
+        # name 컬럼 (USER_AGE)과 unpivot 대상 컬럼들 정보
+        field_info = pivot.args.get("field")
+        name_column = field_info.this if field_info else None
+        unpivot_source_columns = field_info.expressions if field_info else []
+        unpivot_column_mapping = {}
+        # 현재 처리 중인 컬럼이 value 컬럼인 경우
+        if column == value_column.name:
+            # Table 클래스의 this가 Identifier이므로, this.name으로 테이블 이름을 가져옴
+            table_name = pivot.parent.this.name
+            unpivot_column_mapping[value_column.name] = [
+                exp.Column(
+                    this=col.this,  # Identifier는 그대로 유지
+                    table=exp.to_identifier(table_name)  # 테이블 이름을 Identifier로 변환
+                )
+                for col in unpivot_source_columns
+            ]
+        # 현재 처리 중인 컬럼이 name 컬럼인 경우
+        elif column == name_column.name:
+            # name 컬럼은 새로 생성되는 컬럼이므로 소스가 없음
+            unpivot_column_mapping[name_column.name] = []
+        # 그 외 컬럼들은 그대로 통과
+        else:
+            unpivot_column_mapping[column] = [
+                exp.Column(
+                    this=exp.Identifier(this=column),
+                    table=pivot.parent
+                )
+            ]
+
     for c in source_columns:
         table = c.table
-        source = _find_table_source(scope, table)
+        source = find_table_source(scope, table)
 
         if isinstance(source, Scope):
             reference_node_name = None
@@ -305,14 +334,18 @@ def to_node(
             )
         elif pivot and pivot.alias_or_name == c.table:
             downstream_columns = []
-
             column_name = c.name
-            if any(column_name == pivot_column.name for pivot_column in pivot_columns):
-                downstream_columns.extend(pivot_column_mapping[column_name])
+
+            if pivot.unpivot:
+                if any(column_name == unpivot_column.name for unpivot_column in unpivot_source_columns):
+                    downstream_columns.extend(unpivot_column_mapping[column_name])
+                else:
+                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
             else:
-                # The column is not in the pivot, so it must be an implicit column of the
-                # pivoted source -- adapt column to be from the implicit pivoted source.
-                downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
+                if any(column_name == pivot_column.name for pivot_column in pivot_columns):
+                    downstream_columns.extend(pivot_column_mapping[column_name])
+                else:
+                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
 
             for downstream_column in downstream_columns:
                 table = downstream_column.table
@@ -355,93 +388,6 @@ def to_node(
     return node
 
 
-def _extract_source_column(expr: exp.Expression) -> exp.Expression:
-    """
-    Extracts source columns by finding Dot expressions within complex nested expressions.
-
-    Args:
-        expr: The expression to analyze
-
-    Returns:
-        If a Dot expression is found, returns the extracted source column;
-        otherwise returns the original expression
-    """
-    if expr is None:
-        return None
-
-    def find_dot_in_expression(current_expr):
-        if current_expr is None:
-            return None
-
-        # Handle Dot expressions
-        if isinstance(current_expr, exp.Dot):
-            if isinstance(current_expr.this, exp.Column):
-                column = current_expr.this
-                return exp.Column(
-                    this=exp.Identifier(this=current_expr.expression.name),
-                    table=column.table
-                )
-            return None
-
-        # Handle complex nested expressions
-        if isinstance(current_expr, (exp.Case, exp.SetOperation, exp.Window,
-                                     exp.MatchRecognize, exp.Pivot)):
-            # Iterate through all arguments of the expression
-            for arg_name, arg_value in current_expr.args.items():
-                if arg_value is None:
-                    continue
-
-                # Process list-type arguments
-                if isinstance(arg_value, list):
-                    for item in arg_value:
-                        if isinstance(item, exp.Expression):
-                            result = find_dot_in_expression(item)
-                            if result:
-                                return result
-
-                # Process single Expression-type arguments
-                elif isinstance(arg_value, exp.Expression):
-                    result = find_dot_in_expression(arg_value)
-                    if result:
-                        return result
-
-            return None
-
-        # Handle standard expressions
-        if hasattr(current_expr, 'this'):
-            result = find_dot_in_expression(current_expr.this)
-            if result:
-                return result
-
-        if hasattr(current_expr, 'expressions'):
-            for item in current_expr.expressions or []:
-                result = find_dot_in_expression(item)
-                if result:
-                    return result
-
-        return None
-
-    result = find_dot_in_expression(expr)
-    return result if result else expr
-
-
-
-def _find_table_source(scope: Scope, table: str):
-    """
-    :param scope: The current scope containing information about pivots and sources.
-    :param table: The name of the table being searched for in the scope.
-    :return: The parent of the pivot if the table is found in pivots with a matching alias.
-             Otherwise, the source corresponding to the table name in the scope's sources is returned.
-    """
-    # Check for PIVOTS
-    for pivot in scope.pivots:
-        if pivot.alias == table:
-            return pivot.parent
-
-    # Regular table
-    return scope.sources.get(table)
-
-
 class GraphHTML:
     """Node to HTML generator using vis.js.
 
@@ -449,7 +395,7 @@ class GraphHTML:
     """
 
     def __init__(
-        self, nodes: t.Dict, edges: t.List, imports: bool = True, options: t.Optional[t.Dict] = None
+            self, nodes: t.Dict, edges: t.List, imports: bool = True, options: t.Optional[t.Dict] = None
     ):
         self.imports = imports
 

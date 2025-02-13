@@ -16,6 +16,7 @@ if t.TYPE_CHECKING:
     from sqlglot import exp
     from sqlglot._typing import A, E, T
     from sqlglot.expressions import Expression
+    from sqlglot.optimizer import Scope
 
 
 CAMEL_CASE_PATTERN = re.compile("(?<!^)(?=[A-Z])")
@@ -547,3 +548,55 @@ class SingleValuedMapping(t.Mapping[K, V]):
 
     def __iter__(self) -> t.Iterator[K]:
         return iter(self._keys)
+
+def extract_source_column(expr: exp.Expression) -> exp.Expression:
+    """
+    Extracts the source column from an expression, focusing on dot notation cases.
+    If no dot expression is found, returns the original expression.
+
+    Args:
+        expr: Any sqlglot Expression object
+    Returns:
+        Either an extracted Column or the original expression
+    """
+    def find_dot_in_expression(current_expr):
+        if not current_expr:
+            return None
+
+        if isinstance(current_expr, exp.Dot) and isinstance(current_expr.this, exp.Column):
+            return exp.Column(
+                this=exp.Identifier(this=current_expr.expression.name),
+                table=current_expr.this.table
+            )
+
+        # Traverse expression tree
+        if hasattr(current_expr, "this"):
+            result = find_dot_in_expression(current_expr.this)
+            if result:
+                return result
+
+        if hasattr(current_expr, "expressions"):
+            for item in current_expr.expressions or []:
+                result = find_dot_in_expression(item)
+                if result:
+                    return result
+
+        return None
+
+    result = find_dot_in_expression(expr)
+    return result if result else expr
+
+def find_table_source(scope: Scope, table: str):
+    """
+    :param scope: The current scope containing information about pivots and sources.
+    :param table: The name of the table being searched for in the scope.
+    :return: The parent of the pivot if the table is found in pivots with a matching alias.
+             Otherwise, the source corresponding to the table name in the scope's sources is returned.
+    """
+    # Check for PIVOTS
+    for pivot in scope.pivots:
+        if pivot.alias == table:
+            return pivot.parent
+
+    # Regular table
+    return scope.sources.get(table)
