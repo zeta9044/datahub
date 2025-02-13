@@ -724,9 +724,11 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
         },
         "handlers": {
             "file": {
+                "class": "logging.FileHandler",
                 "filename": log_file,
-                "filemode": "a",
-                "formatter": "default",
+                "mode": "a",  # append 모드
+                "encoding": "utf-8",
+                "formatter": "default"
             },
             "console": {
                 "class": "logging.StreamHandler",
