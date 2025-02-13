@@ -4,6 +4,8 @@ import logging
 import re
 import sys
 import time
+import os
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
@@ -703,6 +705,14 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
     BATCH_SIZE = batch_size
     CACHE_TTL = cache_ttl
 
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    # 로그 파일이 존재하면, 마지막 수정 날짜를 확인하여 오늘이 아니면 삭제
+    if os.path.exists(log_file):
+        file_mtime = os.path.getmtime(log_file)
+        file_date = datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d")
+        if file_date != today_str:
+            os.remove(log_file)
+
     # Logging setup
     log_config = {
         "version": 1,
@@ -714,10 +724,8 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
         },
         "handlers": {
             "file": {
-                "class": "logging.handlers.RotatingFileHandler",
                 "filename": log_file,
-                "maxBytes": 10 * 1024 * 1024,
-                "backupCount": 5,
+                "filemode": "a",
                 "formatter": "default",
             },
             "console": {
