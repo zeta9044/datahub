@@ -349,7 +349,7 @@ def to_node(
 
             for downstream_column in downstream_columns:
                 table = downstream_column.table
-                source = scope.sources.get(table)
+                source = find_table_source(scope, table)
                 if isinstance(source, Scope):
                     to_node(
                         downstream_column.name,
