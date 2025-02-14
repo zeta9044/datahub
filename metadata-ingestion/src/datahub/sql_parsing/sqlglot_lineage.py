@@ -1094,9 +1094,10 @@ def _sqlglot_lineage_inner(
                         SQL_LINEAGE_TIMEOUT_SECONDS if SQL_LINEAGE_TIMEOUT_ENABLED else None
                 )
         ):
-            # INSERT INTO ... VALUES 구문 체크
             if isinstance(statement, sqlglot.exp.Insert) and isinstance(statement.expression, sqlglot.exp.Values):
-                logger.debug("Skipping column-level lineage for INSERT INTO ... VALUES statement")
+                logger.info("Skip INSERT INTO VALUES statement...")
+            elif isinstance(statement,sqlglot.exp.Create) and statement.kind =="TABLE" and len(statement.selects) == 0:
+                logger.info("Skip CREATE TABLE statement...")
             else:
                 column_lineage_debug_info = _column_level_lineage(
                     statement,
