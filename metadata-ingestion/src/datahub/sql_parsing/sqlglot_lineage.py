@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pydantic.dataclasses
+
 import sqlglot
 import sqlglot.errors
 import sqlglot.lineage
@@ -14,7 +15,6 @@ import sqlglot.optimizer
 import sqlglot.optimizer.annotate_types
 import sqlglot.optimizer.optimizer
 import sqlglot.optimizer.qualify
-
 from datahub.cli.env_utils import get_boolean_env_variable
 from datahub.ingestion.graph.client import DataHubGraph
 from datahub.metadata.schema_classes import (
@@ -40,6 +40,10 @@ from datahub.sql_parsing.sql_parsing_common import (
     DIALECTS_WITH_DEFAULT_UPPERCASE_COLS,
     QueryType,
     QueryTypeProps,
+)
+from datahub.sql_parsing.sql_parsing_infer_column import (
+    get_expanded_table_columns,
+    get_columns_by_table
 )
 from datahub.sql_parsing.sqlglot_utils import (
     get_dialect,
@@ -472,11 +476,17 @@ def _select_statement_cll(
         output_table: Optional[_TableName],
         original_statement: sqlglot.exp.Expression
 ) -> List[_ColumnLineageInfo]:
+    # Column inference within the query, key is exp.Table, value is list(exp.Column).
+    infer_table_colums = {}
+    try:
+        infer_table_colums = get_expanded_table_columns(statement)
+    except Exception as e:
+        logger.debug(f"Failed to infer table,columns: {e}")
+
     try:
         logger.debug("Starting column lineage generation")
         column_lineage: List[_ColumnLineageInfo] = []
-
-        # INSERT 컬럼 처리
+        # Handle INSERT columns.
         is_column_specified = False
         insert_columns: List[str] = []
         if isinstance(original_statement, sqlglot.exp.Insert):
@@ -488,7 +498,7 @@ def _select_statement_cll(
                 logger.debug(f"Failed to extract INSERT columns: {e}")
                 is_column_specified = False
 
-        # 출력 컬럼 확장
+        # Expand output columns.
         try:
             output_columns = []
             for index, select_col in enumerate(statement.selects):
@@ -516,14 +526,14 @@ def _select_statement_cll(
 
             logger.debug(f"Processed {len(output_columns)} total output columns")
 
-            # Bigquery 특수 컬럼 처리
+            # Handle BigQuery special columns.
             if is_dialect_instance(dialect, "bigquery"):
                 output_columns = [
                     (i, col, expr) for i, col, expr in output_columns
                     if not col.lower() in {"_partitiontime", "_partitiondate"}
                 ]
 
-            # 각 컬럼의 lineage 생성
+            # Generate lineage for each column.
             success_count = 0
             for index, output_col, original_col_expression in output_columns:
                 try:
@@ -536,7 +546,8 @@ def _select_statement_cll(
                     )
 
                     # Generate SELECT lineage
-                    direct_raw_col_upstreams = _get_direct_raw_col_upstreams(lineage_node)
+                    direct_raw_col_upstreams = _get_direct_raw_col_upstreams(lineage_node, infer_table_colums,
+                                                                             root_scope, column_resolver)
 
                     # Fuzzy resolve the output column
                     original_col_expression = lineage_node.expression
@@ -680,6 +691,9 @@ def _column_level_lineage(
 
 def _get_direct_raw_col_upstreams(
         lineage_node: sqlglot.lineage.Node,
+        infer_table_colums: Optional[list[tuple[sqlglot.expressions.Table, list[sqlglot.expressions.Column]]]],
+        root_scope: Optional[sqlglot.optimizer.Scope],
+        column_resolver: Optional[_ColumnResolver],
 ) -> Set[_ColumnRef]:
     # Using a set here to deduplicate upstreams.
     direct_raw_col_upstreams: Set[_ColumnRef] = set()
@@ -693,23 +707,31 @@ def _get_direct_raw_col_upstreams(
             table_ref = _TableName.from_sqlglot_table(node.expression)
 
             if node.name == "*":
-                # This will happen if we couldn't expand the * to actual columns e.g. if
-                # we don't have schema info for the table. In this case, we can't generate
-                # column-level lineage, so we skip it.
-                continue
+                # Expand * based on column inference.
+                expanded_cols = get_columns_by_table(table_ref.as_sqlglot_table(), infer_table_colums)
+                if expanded_cols:
+                    for col in expanded_cols:
+                        direct_raw_col_upstreams.add(
+                            _ColumnRef(
+                                table=table_ref,
+                                column=col.name,
+                            )
+                        )
+                else:
+                    continue
+            else:
+                # Parse the column name out of the node name.
+                # Sqlglot calls .sql(), so we have to do the inverse.
+                normalized_col = sqlglot.parse_one(node.name).this.name
+                normalized_col = normalized_col.split('.')[-1]
+                # if hasattr(node, "subfield") and node.subfield:
+                #     # The hasattr check is necessary, since it lets us be compatible with
+                #     # sqlglot versions that don't have the subfield attribute.
+                #     normalized_col = f"{normalized_col}.{node.subfield}"
 
-            # Parse the column name out of the node name.
-            # Sqlglot calls .sql(), so we have to do the inverse.
-            normalized_col = sqlglot.parse_one(node.name).this.name
-            normalized_col = normalized_col.split('.')[-1]
-            # if hasattr(node, "subfield") and node.subfield:
-            #     # The hasattr check is necessary, since it lets us be compatible with
-            #     # sqlglot versions that don't have the subfield attribute.
-            #     normalized_col = f"{normalized_col}.{node.subfield}"
-
-            direct_raw_col_upstreams.add(
-                _ColumnRef(table=table_ref, column=normalized_col)
-            )
+                direct_raw_col_upstreams.add(
+                    _ColumnRef(table=table_ref, column=normalized_col)
+                )
         else:
             # This branch doesn't matter. For example, a count(*) column would go here, and
             # we don't get any column-level lineage for that.
