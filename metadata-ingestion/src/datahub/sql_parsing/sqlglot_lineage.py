@@ -1095,9 +1095,9 @@ def _sqlglot_lineage_inner(
                 )
         ):
             if isinstance(statement, sqlglot.exp.Insert) and isinstance(statement.expression, sqlglot.exp.Values):
-                logger.info("Skip INSERT INTO VALUES statement...")
+                logger.info("Skip column lineage of INSERT INTO VALUES statement...")
             elif isinstance(statement,sqlglot.exp.Create) and statement.kind =="TABLE" and len(statement.selects) == 0:
-                logger.info("Skip CREATE TABLE statement...")
+                logger.info("Skip column lineage of CREATE TABLE statement...")
             else:
                 column_lineage_debug_info = _column_level_lineage(
                     statement,
