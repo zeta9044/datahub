@@ -1314,7 +1314,10 @@ def _expand_star_column(
         column_resolver: _ColumnResolver
 ) -> List[sqlglot.exp.Expression]:
     """
-    "*" 컬럼을 실제 컬럼 리스트로 확장
+    :param star_col: The star column expression (e.g., `*`) that needs to be expanded into individual column expressions.
+    :param root_scope: The root scope of the query containing the tables and their columns, used for resolution.
+    :param column_resolver: A resolver responsible for matching table and column references with database schema.
+    :return: A list of column expressions resulting from expanding the star column.
     """
     try:
         table_ref = star_col.find(sqlglot.exp.Table)
