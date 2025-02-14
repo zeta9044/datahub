@@ -36,8 +36,9 @@ from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.graph.client import DataHubGraph
 from datahub.ingestion.source.usage.usage_common import BaseUsageConfig
 from datahub.sql_parsing.schema_resolver import SchemaResolver
+from datahub.sql_parsing.sql_parsing_infer_column import register_inferred_schema
 from datahub.sql_parsing.sqlglot_lineage import sqlglot_lineage
-from datahub.sql_parsing.sqlglot_utils import clean_and_pretty_sql
+from datahub.sql_parsing.sqlglot_utils import parse_statement, get_dialect
 
 logger = logging.getLogger(__name__)
 
@@ -172,12 +173,22 @@ class SqlQueriesSource(Source):
         self.report.num_queries_parsed += 1
         if self.report.num_queries_parsed % 1000 == 0:
             logger.info(f"Parsed {self.report.num_queries_parsed} queries")
-        sanitized_query = clean_and_pretty_sql(entry.query,self.config.platform)
+        dialect = get_dialect(self.config.platform)
+        sanitized_statement = parse_statement(entry.query, dialect=dialect)
+        try:
+            register_inferred_schema(
+                statement=sanitized_statement,
+                ctx=self.ctx)
+        except Exception as e:
+            logger.debug(f"At register_inferred_schema Error occurred :{e}, but operation is not affected.")
+
+        sanitized_query = sanitized_statement.sql(pretty=True, dialect=dialect)
         result = sqlglot_lineage(
             sql=sanitized_query,
             schema_resolver=self.schema_resolver,
             default_db=self.config.default_db,
             default_schema=self.config.default_schema,
+            default_dialect=self.config.platform,
         )
 
         entry.custom_keys['query_text'] = sanitized_query
