@@ -7,7 +7,8 @@ class MetaColumns(NamedTuple):
     PLATFORM_INSTANCE: int = 1
     DEFAULT_DB: int = 2
     DEFAULT_SCHEMA: int = 3
-    SYSTEM_BIZ_ID: int = 4
+    OWNER_SRV_ID: int = 4
+    SYSTEM_BIZ_ID: int = 5
 
 META_COLS = MetaColumns()
 
@@ -25,7 +26,7 @@ def get_meta_instance(db_path: str, prj_id: str,  select_columns: Union[tuple[in
         conn = duckdb.connect(db_path, read_only=True)
 
         query = """ 
-            SELECT lower(platform), lower(platform_instance), lower(default_db), lower(default_schema), system_biz_id  
+            SELECT lower(platform), lower(platform_instance), lower(default_db), lower(default_schema), owner_srv_id, system_biz_id  
             FROM main.meta_instance  
             WHERE prj_id = ? 
             LIMIT 1 
