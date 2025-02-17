@@ -47,11 +47,17 @@ def extract_lineage(gms_server_url, prj_id):
         if not os.path.exists(metadatadb_path):
             raise ValueError("metadata.db file does not exist.")
 
-        platform, platform_instance, default_db, default_schema = get_meta_instance(
+        platform, platform_instance, default_db, default_schema, owner_srv_id, system_biz_id = get_meta_instance(
             metadatadb_path,
             prj_id,
             select_columns=(
-                META_COLS.PLATFORM, META_COLS.PLATFORM_INSTANCE, META_COLS.DEFAULT_DB, META_COLS.DEFAULT_SCHEMA)
+                META_COLS.PLATFORM,
+                META_COLS.PLATFORM_INSTANCE,
+                META_COLS.DEFAULT_DB,
+                META_COLS.DEFAULT_SCHEMA,
+                META_COLS.OWNER_SRV_ID,
+                META_COLS.SYSTEM_BIZ_ID,
+            )
         )
         logger.info(f"platform:{platform}")
         logger.info(f"platform_instance:{platform_instance}")
@@ -71,6 +77,12 @@ def extract_lineage(gms_server_url, prj_id):
             logger.info(f"Previous {lineage_path} has been removed")
 
         report_file = f"{prj_id}_lineage.txt"
+
+        # extra config
+        extra_config = {
+            "owner_srv_id": owner_srv_id,
+            "system_biz_id": system_biz_id,
+        }
 
         duckdb_sink_config = {
             "type": "datahub-lite",
@@ -111,7 +123,7 @@ def extract_lineage(gms_server_url, prj_id):
 
         # run pipeline
         logger.info("Starting pipeline execution")
-        queries_pipeline = Pipeline.create(queries_pipeline_config)
+        queries_pipeline = Pipeline.create(queries_pipeline_config,raw_config=extra_config)
         queries_pipeline.run()
         queries_pipeline.raise_from_status()
 
