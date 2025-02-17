@@ -1,5 +1,24 @@
+import hashlib
+import logging
+import time
+
+import requests
+
+from datahub.ingestion.api.common import PipelineContext
+from datahub.metadata._schema_classes import (
+    MetadataChangeEventClass,
+    DatasetSnapshotClass,
+    DatasetPropertiesClass,
+    SchemaMetadataClass,
+    AuditStampClass,
+)
+from datahub.metadata.schema_classes import StringTypeClass
+from datahub.utilities.urns.dataset_urn import DatasetUrn
 from sqlglot import exp
 from sqlglot.optimizer import build_scope
+
+logger = logging.getLogger(__name__)
+
 
 def find_stars_in_expr(expr: exp.Expression, parent_select: exp.Select) -> list:
     """
@@ -245,3 +264,201 @@ def get_columns_by_table(target_table: exp.Table, infer_table_columns: list[tupl
         if table == target_table:
             return columns
     return None
+
+
+# def register_inferred_schema(statement: exp.Expression, ctx: PipelineContext):
+#     # gms url은 ctx.pipeline_config.datahub_api.server로 취득
+#     # create/insert into에서 table정보 취득 후, urn을 만들어서, gms에 version=0,aspect=schemaMetadata가 있는지 확인.
+#     # create 에서 table정보로 이미 등록된 schema인지 확인
+#     # insert into table () values() table정보로 이미 등록된 schema인지 확인
+#     # insert into table ()  select
+#
+#     # 이미 존재하는 schema이면 끝
+#     # 존재하지 않으면,create/insert into에서 column명/datatype을 추출한다. insert into는 column명만 추출한다.
+#     # 위에 추출된것으로 metadata_change_proposals만들어, Datahubrestemitter로 보낸다.
+#
+#     pass
+
+from typing import Optional, Tuple, List
+from sqlglot import exp
+import datahub.emitter.mce_builder as builder
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.metadata.schema_classes import (
+    SchemaFieldClass,
+    SchemaFieldDataTypeClass
+)
+from zeta_lab.utilities.tool import infer_type_from_native
+
+def extract_table_info(statement: exp.Expression,ctx:PipelineContext) -> Optional[Tuple[str, str, str]]:
+    """SQL 문에서 테이블 정보(database, schema, table)를 추출"""
+    default_db = ctx.pipeline_config.source.config.get('default_db')
+    default_schema = ctx.pipeline_config.source.config.get('default_schema')
+
+    if isinstance(statement, exp.Create):
+        table = statement.find(exp.Table)
+    elif isinstance(statement, exp.Insert):
+        table = statement.find(exp.Table)
+    else:
+        return None
+
+    if not table:
+        return None
+
+    return (
+        table.catalog or default_db,
+        table.db or default_schema,
+        table.name
+    )
+
+def extract_schema_fields(statement: exp.Expression) -> List[SchemaFieldClass]:
+    """SQL 문에서 스키마 필드 정보 추출"""
+    fields = []
+
+    if isinstance(statement, exp.Create):
+        columns = statement.find_all(exp.ColumnDef)
+        for column in columns:
+            native_type = column.kind.this.value if column.kind.this else "TEXT"
+            type_class = SchemaFieldDataTypeClass(
+                type=infer_type_from_native(native_type)
+            )
+
+            fields.append(SchemaFieldClass(
+                fieldPath=column.name,
+                type=type_class,
+                nativeDataType=native_type,
+                description=column.comments if column.comments else ""
+            ))
+    elif isinstance(statement, exp.Insert):
+        # INSERT INTO의 경우 컬럼명만 추출
+        columns = statement.this.expressions
+        if columns:
+            fields.extend([
+                SchemaFieldClass(
+                    fieldPath=col.name.lower(),
+                    type=SchemaFieldDataTypeClass(type=StringTypeClass()),
+                    nativeDataType="unknown",
+                )
+                for col in columns
+            ])
+
+    return fields
+
+def check_schema_exists(ctx: PipelineContext, dataset_urn: str) -> bool:
+    """GMS에 스키마가 이미 존재하는지 확인"""
+    try:
+        url = f"{ctx.pipeline_config.datahub_api.server}/aspects/{DatasetUrn.url_encode(dataset_urn)}?aspect=schemaMetadata&version=0"
+        with requests.get(url, timeout=ctx.pipeline_config.datahub_api.timeout_sec) as response:
+            if response.status_code == 200:
+                return True
+            else:
+                return False
+    except Exception as e:
+        logger.debug(f"Error check_schema_exists for {dataset_urn}: {e}")
+        return False
+
+def send_to_gms(metadata_change_proposals, gms_server):
+    """
+    :param metadata_change_proposals: A list of dictionaries where each dictionary represents a metadata change proposal containing the 'aspect' and 'entityUrn'.
+    :param gms_server: A string representing the GMS server address.
+    :return: None
+    """
+    emitter = DatahubRestEmitter(gms_server)
+    for proposal in metadata_change_proposals:
+        try:
+            aspect = proposal['aspect']
+
+            # Create MetadataChangeEventClass
+            mce = MetadataChangeEventClass(
+                proposedSnapshot=DatasetSnapshotClass(
+                    urn=proposal['entityUrn'],
+                    aspects=[aspect]
+                )
+            )
+
+            emitter.emit_mce(mce)
+            logging.debug(f"Successfully sent proposal for {proposal['entityUrn']}")
+        except Exception as e:
+            logging.error(f"Failed to send proposal for {proposal['entityUrn']}: {e}")
+
+def register_inferred_schema(statement: exp.Expression, ctx: PipelineContext):
+    """SQL 문에서 스키마를 추론하여 DataHub GMS에 등록"""
+    # GMS URL과 Emitter 설정
+    gms_url = ctx.pipeline_config.datahub_api.server
+
+    # 테이블 정보 추출
+    table_info = extract_table_info(statement,ctx)
+    if not table_info:
+        return
+
+    # Dataset URN 생성
+    platform = ctx.pipeline_config.source.config.get('platform')
+    platform_instance = ctx.pipeline_config.source.config.get('platform_instance')
+    default_db = ctx.pipeline_config.source.config.get('default_db')
+    default_schema = ctx.pipeline_config.source.config.get('default_schema')
+    owner_srv_id = ctx.pipeline_config._raw_dict.get('owner_srv_id')
+    system_biz_id = ctx.pipeline_config._raw_dict.get('system_biz_id')
+
+    if not table_info[0] and table_info[1]:
+        name = f"{platform_instance}.{default_db}.{table_info[1]}.{table_info[2]}"
+    elif not table_info[0] and not table_info[1]:
+        name = f"{platform_instance}.{default_db}.{default_schema}.{table_info[2]}"
+    else:
+        name = f"{platform_instance}.{table_info[0]}.{table_info[1]}.{table_info[2]}"
+
+    name = name.lower()
+    dataset_urn = builder.make_dataset_urn(platform, name)
+
+    # 이미 스키마가 존재하는지 확인
+    if check_schema_exists(ctx, dataset_urn):
+        return
+
+    # 스키마 필드 추출
+    fields = extract_schema_fields(statement)
+    if not fields:
+        return
+
+    metadata_change_proposals = []
+    schema_metadata_dict = {
+        "schemaName": name,
+        "platform": platform,
+        "version": 0,
+        "fields": fields,
+        "platformSchema": {
+            "com.linkedin.schema.MySqlDDL": {
+                "tableSchema": ""
+            }
+        },
+        "hash": hashlib.md5(str(fields).encode()).hexdigest(),
+        "lastModified": AuditStampClass(
+            time=int(time.time() * 1000),
+            actor="urn:li:corpuser:datahub",
+        ),
+    }
+    schema_metadata = SchemaMetadataClass(**schema_metadata_dict)
+
+    metadata_change_proposals.append({
+        "entityType": "dataset",
+        "entityUrn": dataset_urn,
+        "aspectName": "schemaMetadata",
+        "aspect": schema_metadata
+    })
+
+    # DatasetProperties aspect 생성
+    dataset_properties = DatasetPropertiesClass(
+        description="",
+        name=name,
+        customProperties={
+            "owner_srv_id": owner_srv_id,
+            "system_biz_id": system_biz_id,
+        }
+    )
+
+    metadata_change_proposals.append({
+        "entityType": "dataset",
+        "entityUrn": dataset_urn,
+        "aspectName": "datasetProperties",
+        "aspect": dataset_properties
+    })
+
+    send_to_gms(metadata_change_proposals,gms_url)
+
