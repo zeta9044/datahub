@@ -46,7 +46,8 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
                        t2.metapop_schema_name AS default_schema,
                        t2.metapop_system_id AS system_id,
                        t2.metapop_biz_id AS biz_id,
-                       t2.metapop_system_id || '_' || t2.metapop_biz_id AS system_biz_id
+                       t2.metapop_system_id || '_' || t2.metapop_biz_id AS system_biz_id,
+                       t2.owner_srv_id
                 FROM ais1024 t4
                 JOIN ais1022 t2 ON t4.owner_srv_id = t2.owner_srv_id
                 JOIN ais1003 t1 ON t4.job_id = t1.job_id
@@ -73,14 +74,18 @@ def transfer_meta_instance(pg_dsn: str, duckdb_path: str) -> Optional[bool]:
             system_id TEXT,
             biz_id TEXT,
             system_biz_id TEXT,
-            PRIMARY KEY (prj_id, tgt_srv_id, platform_instance,default_db, default_schema,system_biz_id)
+            owner_srv_id TEXT,
+            PRIMARY KEY (
+                prj_id, tgt_srv_id, platform_instance,default_db, default_schema,
+                system_biz_id,owner_srv_id
+            )
         )
         ''')
 
         for row in rows_as_tuples:
             try:
                 conn.execute('''
-                INSERT OR REPLACE INTO meta_instance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO meta_instance VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)
                 ''', row)
             except duckdb.ConstraintException as e:
                 if "Constraint Error: Duplicate key" in str(e):
