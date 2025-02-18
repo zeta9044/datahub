@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 
 from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
+from sqlglot.helper import find_table_source
 from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
 from sqlglot.optimizer.scope import ScopeType
-from sqlglot.helper import extract_source_column, find_table_source
 
 if t.TYPE_CHECKING:
     from sqlglot.dialects.dialect import DialectType
@@ -237,12 +237,33 @@ def to_node(
                 Node(name=select.sql(comments=False), source=source, expression=source)
             )
 
-    # Process the select expression to extract its source column information,
-    # handling any aliases or nested column references
-    select = extract_source_column(select)
+    # Purpose: This code extracts source column lineage information from a SQL select statement
 
-    # Find all columns that went into creating this one to list their lineage nodes.
-    source_columns = list(find_all_in_scope(select, exp.Column))
+    # Step 1: Check for dot notation references (e.g., table.column)
+    # - Use find_all_in_scope() to search for Dot expressions in the select statement
+    # - Store results in source_columns list
+    source_columns = list(find_all_in_scope(select, exp.Dot))
+
+    if source_columns:
+        # Step 2: If dot notation columns found, convert them to Column objects
+        # - Filter to only include cases where dot.this is a Column
+        # - Create new Column objects with:
+        #   * this = Identifier with the column name from dot.expression.name
+        #   * table = original table reference from dot.this.table
+        source_columns = [exp.Column(this=exp.Identifier(this=dot.expression.name), table=dot.this.table) for dot in
+                          source_columns if isinstance(dot.this, exp.Column)]
+
+        if source_columns:
+            # Step 3: Find all Column references within scope
+            # - Search again to catch any remaining Column objects
+            source_columns = list(find_all_in_scope(select, exp.Column))
+    else:
+        # Step 4: Fallback - if no dot notation found
+        # - Directly search for all Column objects in scope
+        source_columns = list(find_all_in_scope(select, exp.Column))
+
+    # The final source_columns list contains all source columns that contribute
+    # to the target column's lineage, either from dot notation or direct column references
 
     # If the source is a UDTF find columns used in the UTDF to generate the table
     if isinstance(source, exp.UDTF):
@@ -277,25 +298,31 @@ def to_node(
                 pivot_column_mapping[pivot_columns[col_index].name] = agg_cols
 
     elif pivot and pivot.unpivot:
-        # value 컬럼 정보 (USER_CNT)
-        value_column = pivot.args.get("expressions", [])[0]
+        # value 컬럼 정보
+        value_columns = pivot.expressions
 
-        # name 컬럼 (USER_AGE)과 unpivot 대상 컬럼들 정보
+        # name 컬럼 과 unpivot 대상 컬럼들 정보
         field_info = pivot.args.get("field")
         name_column = field_info.this if field_info else None
         unpivot_source_columns = field_info.expressions if field_info else []
         unpivot_column_mapping = {}
+
+        # value 컬럼 매핑
+        value_column_mapping = {}
+        for value_column in value_columns:
+            if column == value_column.name:
+                table_name = pivot.parent.this.name
+                value_column_mapping[value_column.name] = [
+                    exp.Column(
+                        this=col.this,
+                        table=exp.to_identifier(table_name)
+                    )
+                    for col in unpivot_source_columns
+                ]
+
         # 현재 처리 중인 컬럼이 value 컬럼인 경우
-        if column == value_column.name:
-            # Table 클래스의 this가 Identifier이므로, this.name으로 테이블 이름을 가져옴
-            table_name = pivot.parent.this.name
-            unpivot_column_mapping[value_column.name] = [
-                exp.Column(
-                    this=col.this,  # Identifier는 그대로 유지
-                    table=exp.to_identifier(table_name)  # 테이블 이름을 Identifier로 변환
-                )
-                for col in unpivot_source_columns
-            ]
+        if value_column_mapping:
+            unpivot_column_mapping.update(value_column_mapping)
         # 현재 처리 중인 컬럼이 name 컬럼인 경우
         elif column == name_column.name:
             # name 컬럼은 새로 생성되는 컬럼이므로 소스가 없음
