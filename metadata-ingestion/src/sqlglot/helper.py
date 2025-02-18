@@ -549,46 +549,6 @@ class SingleValuedMapping(t.Mapping[K, V]):
         return iter(self._keys)
 
 
-def extract_source_column(expr: exp.Expression) -> exp.Expression:
-    """
-    Extracts the source column from an expression, focusing on dot notation cases.
-    If no dot expression is found, returns the original expression.
-
-    Args:
-        expr: Any sqlglot Expression object
-    Returns:
-        Either an extracted Column or the original expression
-    """
-    from sqlglot import exp
-
-    def find_dot_in_expression(current_expr):
-        if not current_expr:
-            return None
-
-        if isinstance(current_expr, exp.Dot) and isinstance(current_expr.this, exp.Column):
-            return exp.Column(
-                this=exp.Identifier(this=current_expr.expression.name),
-                table=current_expr.this.table
-            )
-
-        # Traverse expression tree
-        if hasattr(current_expr, "this"):
-            result = find_dot_in_expression(current_expr.this)
-            if result:
-                return result
-
-        if hasattr(current_expr, "expressions"):
-            for item in current_expr.expressions or []:
-                result = find_dot_in_expression(item)
-                if result:
-                    return result
-
-        return None
-
-    result = find_dot_in_expression(expr)
-    return result if result else expr
-
-
 def find_table_source(scope: Scope, table: str):
     """
     :param scope: The current scope containing information about pivots and sources.
