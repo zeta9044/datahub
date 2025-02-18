@@ -155,39 +155,49 @@ class SchemaResolver(Closeable, SchemaResolverInterface):
         return self._schema_cache.get(urn) is not None
 
     def find_urn_in_cache(self, platform: str, table_name: str, env: str, lower: bool = False) -> Optional[str]:
-
         if lower:
             table_name = table_name.lower()
             platform = platform.lower() if platform else None
 
         logger.debug(f"Searching for URN: platform={platform}, table={table_name}, env={env}")
 
-        # URN 패턴 생성 (캐시 구조에 맞게 조정)
-        urn_pattern = f"urn:li:dataset:\\(urn:li:dataPlatform:{platform},.*{table_name},{env}\\)"
+        # URN pattern for exact table name matching (allowing any path prefix)
+        exact_urn_pattern = f"urn:li:dataset:\\(urn:li:dataPlatform:{platform},[^,]*{table_name},{env}\\)"
+        logger.debug(f"Using exact URN pattern: {exact_urn_pattern}")
 
-        logger.debug(f"Using URN pattern: {urn_pattern}")
-
-        matching_urns = []
+        # Try exact matching
+        exact_matching_urns = []
         for urn in self._schema_cache.keys():
-            if re.match(urn_pattern, urn, re.IGNORECASE):
-                matching_urns.append(urn)
+            if re.match(exact_urn_pattern, urn, re.IGNORECASE):
+                exact_matching_urns.append(urn)
 
-        if not matching_urns:
+        # Return if exact match is found
+        if exact_matching_urns:
+            selected_urn = exact_matching_urns[0]
+            logger.debug(f"Found exact match URN: {selected_urn}")
+            return selected_urn
+
+        # Try loose matching (allowing any characters between platform and table name)
+        loose_urn_pattern = f"urn:li:dataset:\\(urn:li:dataPlatform:{platform},.*{table_name},{env}\\)"
+        logger.debug(f"Using loose URN pattern: {loose_urn_pattern}")
+
+        loose_matching_urns = []
+        for urn in self._schema_cache.keys():
+            if re.match(loose_urn_pattern, urn, re.IGNORECASE):
+                loose_matching_urns.append(urn)
+
+        if not loose_matching_urns:
             logger.debug("No matching URN found in cache.")
             return None
 
-        # 결과 필터링 (필요한 경우)
-        if len(matching_urns) > 1:
-            # 가장 근접한 매치 선택
-            exact_matches = [urn for urn in matching_urns if table_name.lower() in urn.lower()]
-            if exact_matches:
-                selected_urn = exact_matches[0]
-            else:
-                selected_urn = matching_urns[0]
+        # Filter results if multiple loose matches exist
+        if len(loose_matching_urns) > 1:
+            exact_matches = [urn for urn in loose_matching_urns if table_name.lower() in urn.lower()]
+            selected_urn = exact_matches[0] if exact_matches else loose_matching_urns[0]
         else:
-            selected_urn = matching_urns[0]
+            selected_urn = loose_matching_urns[0]
 
-        logger.debug(f"Selected URN: {selected_urn}")
+        logger.debug(f"Selected URN from loose matches: {selected_urn}")
         return selected_urn
 
     def _resolve_schema_info(self, urn: str) -> Optional[SchemaInfo]:
