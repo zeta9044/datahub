@@ -253,7 +253,7 @@ def to_node(
         source_columns = [exp.Column(this=exp.Identifier(this=dot.expression.name), table=dot.this.table) for dot in
                           source_columns if isinstance(dot.this, exp.Column)]
 
-        if source_columns:
+        if not source_columns:
             # Step 3: Find all Column references within scope
             # - Search again to catch any remaining Column objects
             source_columns = list(find_all_in_scope(select, exp.Column))
