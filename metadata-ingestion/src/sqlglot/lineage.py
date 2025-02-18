@@ -340,7 +340,27 @@ def to_node(
         table = c.table
         source = find_table_source(scope, table)
 
-        if isinstance(source, Scope):
+        if isinstance(source,exp.DerivedTable) or isinstance(source,exp.CTE):
+            manual_source_scope = build_scope(source)
+            reference_node_name = None
+            if manual_source_scope.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
+                reference_node_name = table
+            elif manual_source_scope.scope_type == ScopeType.CTE:
+                selected_node, _ = scope.selected_sources.get(table, (None, None))
+                reference_node_name = selected_node.name if selected_node else None
+
+            # The table itself came from a more specific scope. Recurse into that one using the unaliased column name.
+            to_node(
+                c.name,
+                scope=manual_source_scope,
+                dialect=dialect,
+                scope_name=table,
+                upstream=node,
+                source_name=source_names.get(table) or source_name,
+                reference_node_name=reference_node_name,
+                trim_selects=trim_selects,
+            )
+        elif isinstance(source, Scope):
             reference_node_name = None
             if source.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
                 reference_node_name = table
