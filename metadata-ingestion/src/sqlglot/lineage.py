@@ -92,7 +92,8 @@ def lineage(
     """
 
     expression = maybe_parse(sql, dialect=dialect)
-    column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
+    #column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
+    assert isinstance(column, str)
 
     if sources:
         expression = exp.expand(
