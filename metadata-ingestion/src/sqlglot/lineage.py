@@ -332,9 +332,21 @@ def to_node(
 
     for c in source_columns:
         table = c.table
-        source = scope.sources.get(table)
+        source = scope.sources.get(table) or (pivot.parent if pivot else None)
 
-        if isinstance(source, Scope):
+        if isinstance(source, (exp.Subquery,exp.CTE)):
+            manual_source_scope = build_scope(source)
+            to_node(
+                c.name,
+                scope=manual_source_scope,
+                dialect=dialect,
+                scope_name=table,
+                upstream=node,
+                source_name=source_names.get(table) or source_name,
+                reference_node_name=reference_node_name,
+                trim_selects=trim_selects,
+            )
+        elif isinstance(source, Scope):
             reference_node_name = None
             if source.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
                 reference_node_name = table
@@ -355,8 +367,8 @@ def to_node(
             )
         elif pivot and pivot.alias_or_name == c.table:
             downstream_columns = []
-            column_name = c.name
 
+            column_name = c.name
             if pivot.unpivot:
                 if any(
                         column_name == unpivot_column.name for unpivot_column in unpivot_source_columns
