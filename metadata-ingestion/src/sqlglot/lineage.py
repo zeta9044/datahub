@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import typing as t
-
 from dataclasses import dataclass, field
 
 from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
-from sqlglot.helper import find_table_source
-from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, qualify
+from sqlglot.optimizer import Scope, build_scope, find_all_in_scope, normalize_identifiers, qualify
 from sqlglot.optimizer.scope import ScopeType
 
 if t.TYPE_CHECKING:
@@ -94,8 +92,7 @@ def lineage(
     """
 
     expression = maybe_parse(sql, dialect=dialect)
-    # column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
-    assert isinstance(column, str)
+    column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
 
     if sources:
         expression = exp.expand(
@@ -237,12 +234,13 @@ def to_node(
                 Node(name=select.sql(comments=False), source=source, expression=source)
             )
 
+    # Find all columns that went into creating this one to list their lineage nodes.
     # Purpose: This code extracts source column lineage information from a SQL select statement
 
     # Step 1: Check for dot notation references (e.g., table.column)
     # - Use find_all_in_scope() to search for Dot expressions in the select statement
     # - Store results in source_columns list
-    source_columns = set(find_all_in_scope(select, exp.Dot))
+    source_columns: set[exp.Column] = set(find_all_in_scope(select, exp.Dot))
 
     if source_columns:
         # Step 2: If dot notation columns found, convert them to Column objects
@@ -250,8 +248,11 @@ def to_node(
         # - Create new Column objects with:
         #   * this = Identifier with the column name from dot.expression.name
         #   * table = original table reference from dot.this.table
-        source_columns = [exp.Column(this=exp.Identifier(this=dot.expression.name), table=dot.this.table) for dot in
-                          source_columns if isinstance(dot.this, exp.Column)]
+        source_columns = set(
+            exp.Column(this=exp.Identifier(this=dot.expression.name), table=dot.this.table)
+            for dot in source_columns
+            if isinstance(dot.this, exp.Column)
+        )
 
         if not source_columns:
             # Step 3: Find all Column references within scope
@@ -284,56 +285,48 @@ def to_node(
 
     pivots = scope.pivots
     pivot = pivots[0] if len(pivots) == 1 else None
-    unpivot_column_mapping = {}
-    unpivot_source_columns = {}
-    pivot_column_mapping = {}
-    pivot_columns = {}
     if pivot and not pivot.unpivot:
-        # 기존 PIVOT 처리 로직
+        # Existing PIVOT processing logic
         pivot_columns = pivot.args["columns"]
         pivot_aggs_count = len(pivot.expressions)
+
+        pivot_column_mapping = {}
         for i, agg in enumerate(pivot.expressions):
             agg_cols = list(agg.find_all(exp.Column))
             for col_index in range(i, len(pivot_columns), pivot_aggs_count):
                 pivot_column_mapping[pivot_columns[col_index].name] = agg_cols
 
     elif pivot and pivot.unpivot:
-        # value 컬럼 정보
+        # Value column information
         value_columns = pivot.expressions
 
-        # name 컬럼 과 unpivot 대상 컬럼들 정보
+        # Name column and unpivot target columns information
         field_info = pivot.args.get("field")
         name_column = field_info.this if field_info else None
         unpivot_source_columns = field_info.expressions if field_info else []
         unpivot_column_mapping = {}
 
-        # value 컬럼 매핑
+        # Value column mapping
         value_column_mapping = {}
         for value_column in value_columns:
             if column == value_column.name:
                 table_name = pivot.parent.this.name
                 value_column_mapping[value_column.name] = [
-                    exp.Column(
-                        this=col.this,
-                        table=exp.to_identifier(table_name)
-                    )
+                    exp.Column(this=col.this, table=exp.to_identifier(table_name))
                     for col in unpivot_source_columns
                 ]
 
-        # 현재 처리 중인 컬럼이 value 컬럼인 경우
+        # If the current column being processed is a value column
         if value_column_mapping:
             unpivot_column_mapping.update(value_column_mapping)
-        # 현재 처리 중인 컬럼이 name 컬럼인 경우
-        elif column == name_column.name:
-            # name 컬럼은 새로 생성되는 컬럼이므로 소스가 없음
+        # If the current column being processed is a name column
+        elif name_column is not None and column == name_column.name:
+            # Name column has no source as it's a newly generated column
             unpivot_column_mapping[name_column.name] = []
-        # 그 외 컬럼들은 그대로 통과
+        # Other columns pass through unchanged
         else:
             unpivot_column_mapping[column] = [
-                exp.Column(
-                    this=exp.Identifier(this=column),
-                    table=pivot.parent
-                )
+                exp.Column(this=exp.Identifier(this=column), table=pivot.parent)
             ]
 
     for c in source_columns:
@@ -364,7 +357,9 @@ def to_node(
             column_name = c.name
 
             if pivot.unpivot:
-                if any(column_name == unpivot_column.name for unpivot_column in unpivot_source_columns):
+                if any(
+                        column_name == unpivot_column.name for unpivot_column in unpivot_source_columns
+                ):
                     downstream_columns.extend(unpivot_column_mapping[column_name])
                 else:
                     downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
@@ -403,13 +398,8 @@ def to_node(
             # is unknown. This can happen if the definition of a source used in a query is not
             # passed into the `sources` map.
             source = source or exp.Placeholder()
-
             node.downstream.append(
-                Node(
-                    name=c.sql(comments=False),
-                    source=source,
-                    expression=source,
-                )
+                Node(name=c.sql(comments=False), source=source, expression=source)
             )
 
     return node
