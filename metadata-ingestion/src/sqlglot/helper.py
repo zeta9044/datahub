@@ -547,19 +547,3 @@ class SingleValuedMapping(t.Mapping[K, V]):
 
     def __iter__(self) -> t.Iterator[K]:
         return iter(self._keys)
-
-
-def find_table_source(scope: Scope, table: str):
-    """
-    :param scope: The current scope containing information about pivots and sources.
-    :param table: The name of the table being searched for in the scope.
-    :return: The parent of the pivot if the table is found in pivots with a matching alias.
-             Otherwise, the source corresponding to the table name in the scope's sources is returned.
-    """
-    # Check for PIVOTS
-    for pivot in scope.pivots:
-        if pivot.alias == table:
-            return pivot.parent
-
-    # Regular table
-    return scope.sources.get(table)
