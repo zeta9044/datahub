@@ -242,7 +242,7 @@ def to_node(
     # Step 1: Check for dot notation references (e.g., table.column)
     # - Use find_all_in_scope() to search for Dot expressions in the select statement
     # - Store results in source_columns list
-    source_columns = list(find_all_in_scope(select, exp.Dot))
+    source_columns = set(find_all_in_scope(select, exp.Dot))
 
     if source_columns:
         # Step 2: If dot notation columns found, convert them to Column objects
@@ -256,18 +256,18 @@ def to_node(
         if not source_columns:
             # Step 3: Find all Column references within scope
             # - Search again to catch any remaining Column objects
-            source_columns = list(find_all_in_scope(select, exp.Column))
+            source_columns = set(find_all_in_scope(select, exp.Column))
     else:
         # Step 4: Fallback - if no dot notation found
         # - Directly search for all Column objects in scope
-        source_columns = list(find_all_in_scope(select, exp.Column))
+        source_columns = set(find_all_in_scope(select, exp.Column))
 
     # The final source_columns list contains all source columns that contribute
     # to the target column's lineage, either from dot notation or direct column references
 
     # If the source is a UDTF find columns used in the UTDF to generate the table
     if isinstance(source, exp.UDTF):
-        source_columns |= list(source.find_all(exp.Column))
+        source_columns |= set(source.find_all(exp.Column))
         derived_tables = [
             source.expression.parent
             for source in scope.sources.values()
@@ -338,29 +338,9 @@ def to_node(
 
     for c in source_columns:
         table = c.table
-        source = find_table_source(scope, table)
+        source = scope.sources.get(table)
 
-        if isinstance(source,exp.DerivedTable) or isinstance(source,exp.CTE):
-            manual_source_scope = build_scope(source)
-            reference_node_name = None
-            if manual_source_scope.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
-                reference_node_name = table
-            elif manual_source_scope.scope_type == ScopeType.CTE:
-                selected_node, _ = scope.selected_sources.get(table, (None, None))
-                reference_node_name = selected_node.name if selected_node else None
-
-            # The table itself came from a more specific scope. Recurse into that one using the unaliased column name.
-            to_node(
-                c.name,
-                scope=manual_source_scope,
-                dialect=dialect,
-                scope_name=table,
-                upstream=node,
-                source_name=source_names.get(table) or source_name,
-                reference_node_name=reference_node_name,
-                trim_selects=trim_selects,
-            )
-        elif isinstance(source, Scope):
+        if isinstance(source, Scope):
             reference_node_name = None
             if source.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
                 reference_node_name = table
@@ -396,7 +376,7 @@ def to_node(
 
             for downstream_column in downstream_columns:
                 table = downstream_column.table
-                source = find_table_source(scope, table)
+                source = scope.sources.get(table)
                 if isinstance(source, Scope):
                     to_node(
                         downstream_column.name,
