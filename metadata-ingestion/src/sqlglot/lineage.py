@@ -336,9 +336,18 @@ def to_node(
 
         if isinstance(source, (exp.Subquery,exp.CTE)):
             manual_source_scope = build_scope(source)
+            if manual_source_scope is None:
+                # Handle the case where build_scope returns None
+                # This could happen if the source is not a valid SELECT statement
+                source = source or exp.Placeholder()
+                node.downstream.append(
+                    Node(name=c.sql(comments=False), source=source, expression=source)
+                )
+                continue
+
             to_node(
                 c.name,
-                scope=manual_source_scope,
+                scope=manual_source_scope,  # Now we know manual_source_scope is not None
                 dialect=dialect,
                 scope_name=table,
                 upstream=node,
