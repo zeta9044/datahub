@@ -14,12 +14,12 @@ if t.TYPE_CHECKING:
 
 
 def qualify_tables(
-    expression: E,
-    db: t.Optional[str | exp.Identifier] = None,
-    catalog: t.Optional[str | exp.Identifier] = None,
-    schema: t.Optional[Schema] = None,
-    infer_csv_schemas: bool = False,
-    dialect: DialectType = None,
+        expression: E,
+        db: t.Optional[str | exp.Identifier] = None,
+        catalog: t.Optional[str | exp.Identifier] = None,
+        schema: t.Optional[Schema] = None,
+        infer_csv_schemas: bool = False,
+        dialect: DialectType = None,
 ) -> E:
     """
     Rewrite sqlglot AST to have fully qualified tables. Join constructs such as
@@ -50,17 +50,8 @@ def qualify_tables(
     db = exp.parse_identifier(db, dialect=dialect) if db else None
     catalog = exp.parse_identifier(catalog, dialect=dialect) if catalog else None
 
-    # First collect all CTE names
-    cte_names = set()
-    for scope in traverse_scope(expression):
-        for cte in scope.ctes:
-            cte_names.add(cte.alias)
-
     def _qualify(table: exp.Table) -> None:
         if isinstance(table.this, exp.Identifier):
-            # Skip qualification if table is a CTE reference
-            if table.name in cte_names:
-                return
             if not table.args.get("db"):
                 table.set("db", db)
             if not table.args.get("catalog") and table.args.get("db"):
@@ -106,12 +97,16 @@ def qualify_tables(
                     source.alias
                 )
 
-                _qualify(source)
+                if pivots:
+                    if not pivots[0].alias:
+                        pivot_alias = next_alias_name()
+                        pivots[0].set("alias", exp.TableAlias(this=exp.to_identifier(pivot_alias)))
 
-                if pivots and not pivots[0].alias:
-                    pivots[0].set(
-                        "alias", exp.TableAlias(this=exp.to_identifier(next_alias_name()))
-                    )
+                    # This case corresponds to a pivoted CTE, we don't want to qualify that
+                    if isinstance(scope.sources.get(source.alias_or_name), Scope):
+                        continue
+
+                _qualify(source)
 
                 if infer_csv_schemas and schema and isinstance(source.this, exp.ReadCSV):
                     with csv_reader(source.this) as reader:
@@ -137,9 +132,9 @@ def qualify_tables(
             else:
                 for node in scope.walk():
                     if (
-                        isinstance(node, exp.Table)
-                        and not node.alias
-                        and isinstance(node.parent, (exp.From, exp.Join))
+                            isinstance(node, exp.Table)
+                            and not node.alias
+                            and isinstance(node.parent, (exp.From, exp.Join))
                     ):
                         # Mutates the table by attaching an alias to it
                         alias(node, node.name, copy=False, table=True)
