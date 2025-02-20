@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 
 from utilities.tool import format_time
+from zeta_lab.utilities.daily_rotating_log_handler import setup_logging
 
 # Ensure Python 3.10+ is being used
 assert sys.version_info >= (3, 10), "Python 3.10+ is required."
@@ -713,34 +714,9 @@ def main(log_file, db_file, log_level, port, workers, batch_size, cache_ttl):
         if file_date != today_str:
             os.remove(log_file)
 
-    # Logging setup
-    log_config = {
-        "version": 1,
-        "disable_existing_loggers": False,  # 중요! 기존 로거를 비활성화하지 않음
-        "formatters": {
-            "default": {
-                "format": "%(asctime)s - %(levelname)s - %(message)s"
-            }
-        },
-        "handlers": {
-            "file": {
-                "class": "logging.FileHandler",
-                "filename": log_file,
-                "mode": "a",  # append 모드
-                "encoding": "utf-8",
-                "formatter": "default"
-            },
-            "console": {
-                "class": "logging.StreamHandler",
-                "stream": "ext://sys.stdout",
-                "formatter": "default",
-            }
-        },
-        "root": {
-            "level": log_level,
-            "handlers": ["console", "file"]
-        }
-    }
+    # Custom logging setup with daily rotation
+    log_config = setup_logging(log_file, log_level)
+
     # Store configuration in app state
     app.state.db_file = db_file
 
