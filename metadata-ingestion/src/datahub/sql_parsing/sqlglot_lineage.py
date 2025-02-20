@@ -575,6 +575,8 @@ def _select_statement_cll(
                         for edge in direct_raw_col_upstreams
                     }
 
+                    # normalize for pivot column
+                    output_col = sqlglot.optimizer.normalize_identifiers.normalize_identifiers(output_col, dialect=dialect).name
                     if is_column_specified:
                         output_col = insert_columns[index]
 
