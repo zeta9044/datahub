@@ -1,9 +1,12 @@
 import hashlib
 import logging
 import time
+from typing import Optional, Tuple, List
 
 import requests
 
+import datahub.emitter.mce_builder as builder
+from datahub.emitter.rest_emitter import DatahubRestEmitter
 from datahub.ingestion.api.common import PipelineContext
 from datahub.metadata._schema_classes import (
     MetadataChangeEventClass,
@@ -12,10 +15,15 @@ from datahub.metadata._schema_classes import (
     SchemaMetadataClass,
     AuditStampClass,
 )
+from datahub.metadata.schema_classes import (
+    SchemaFieldClass,
+    SchemaFieldDataTypeClass
+)
 from datahub.metadata.schema_classes import StringTypeClass
 from datahub.utilities.urns.dataset_urn import DatasetUrn
 from sqlglot import exp
 from sqlglot.optimizer import build_scope
+from zeta_lab.utilities.tool import infer_type_from_native
 
 logger = logging.getLogger(__name__)
 
@@ -266,30 +274,7 @@ def get_columns_by_table(target_table: exp.Table, infer_table_columns: list[tupl
     return None
 
 
-# def register_inferred_schema(statement: exp.Expression, ctx: PipelineContext):
-#     # gms url은 ctx.pipeline_config.datahub_api.server로 취득
-#     # create/insert into에서 table정보 취득 후, urn을 만들어서, gms에 version=0,aspect=schemaMetadata가 있는지 확인.
-#     # create 에서 table정보로 이미 등록된 schema인지 확인
-#     # insert into table () values() table정보로 이미 등록된 schema인지 확인
-#     # insert into table ()  select
-#
-#     # 이미 존재하는 schema이면 끝
-#     # 존재하지 않으면,create/insert into에서 column명/datatype을 추출한다. insert into는 column명만 추출한다.
-#     # 위에 추출된것으로 metadata_change_proposals만들어, Datahubrestemitter로 보낸다.
-#
-#     pass
-
-from typing import Optional, Tuple, List
-from sqlglot import exp
-import datahub.emitter.mce_builder as builder
-from datahub.emitter.rest_emitter import DatahubRestEmitter
-from datahub.metadata.schema_classes import (
-    SchemaFieldClass,
-    SchemaFieldDataTypeClass
-)
-from zeta_lab.utilities.tool import infer_type_from_native
-
-def extract_table_info(statement: exp.Expression,ctx:PipelineContext) -> Optional[Tuple[str, str, str]]:
+def extract_table_info(statement: exp.Expression, ctx: PipelineContext) -> Optional[Tuple[str, str, str]]:
     """SQL 문에서 테이블 정보(database, schema, table)를 추출"""
     default_db = ctx.pipeline_config.source.config.get('default_db')
     default_schema = ctx.pipeline_config.source.config.get('default_schema')
@@ -310,6 +295,7 @@ def extract_table_info(statement: exp.Expression,ctx:PipelineContext) -> Optiona
         table.name
     )
 
+
 def extract_schema_fields(statement: exp.Expression) -> List[SchemaFieldClass]:
     """SQL 문에서 스키마 필드 정보 추출"""
     fields = []
@@ -323,7 +309,7 @@ def extract_schema_fields(statement: exp.Expression) -> List[SchemaFieldClass]:
             )
 
             fields.append(SchemaFieldClass(
-                fieldPath=column.name,
+                fieldPath=column.name.lower(),
                 type=type_class,
                 nativeDataType=native_type,
                 description=column.comments if column.comments else ""
@@ -343,6 +329,7 @@ def extract_schema_fields(statement: exp.Expression) -> List[SchemaFieldClass]:
 
     return fields
 
+
 def check_schema_exists(ctx: PipelineContext, dataset_urn: str) -> bool:
     """GMS에 스키마가 이미 존재하는지 확인"""
     try:
@@ -355,6 +342,7 @@ def check_schema_exists(ctx: PipelineContext, dataset_urn: str) -> bool:
     except Exception as e:
         logger.debug(f"Error check_schema_exists for {dataset_urn}: {e}")
         return False
+
 
 def send_to_gms(metadata_change_proposals, gms_server):
     """
@@ -380,13 +368,14 @@ def send_to_gms(metadata_change_proposals, gms_server):
         except Exception as e:
             logging.error(f"Failed to send proposal for {proposal['entityUrn']}: {e}")
 
+
 def register_inferred_schema(statement: exp.Expression, ctx: PipelineContext):
     """SQL 문에서 스키마를 추론하여 DataHub GMS에 등록"""
     # GMS URL과 Emitter 설정
     gms_url = ctx.pipeline_config.datahub_api.server
 
     # 테이블 정보 추출
-    table_info = extract_table_info(statement,ctx)
+    table_info = extract_table_info(statement, ctx)
     if not table_info:
         return
 
@@ -460,5 +449,4 @@ def register_inferred_schema(statement: exp.Expression, ctx: PipelineContext):
         "aspect": dataset_properties
     })
 
-    send_to_gms(metadata_change_proposals,gms_url)
-
+    send_to_gms(metadata_change_proposals, gms_url)
