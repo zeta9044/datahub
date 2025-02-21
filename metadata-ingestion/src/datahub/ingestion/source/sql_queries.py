@@ -219,8 +219,11 @@ class SqlQueriesSource(Source):
             logger.debug(
                 f"Error parsing column lineage, {result.debug_info.column_error}"
             )
+            header = "\n".join([f"{k}:{entry.custom_keys[k]}" for k in ['prj_id', 'file_id', 'sql_id']])
+            context_str = f"\n{header}\n{entry.custom_keys['query_text']}"
             self.report.info(
                 message=f"Error parsing column lineage, {result.debug_info.column_error}",
+                context=context_str
             )
             self.report.num_column_parse_failures += 1
 
