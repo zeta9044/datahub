@@ -219,6 +219,9 @@ class SqlQueriesSource(Source):
             logger.debug(
                 f"Error parsing column lineage, {result.debug_info.column_error}"
             )
+            self.report.info(
+                message=f"Error parsing column lineage, {result.debug_info.column_error}",
+            )
             self.report.num_column_parse_failures += 1
 
         yield from self.builder.process_sql_parsing_result(
