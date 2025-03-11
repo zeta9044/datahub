@@ -1557,6 +1557,7 @@ class Show(Expression):
         "log": False,
         "position": False,
         "types": False,
+        "privileges": False,
     }
 
 
@@ -1568,8 +1569,12 @@ class CharacterSet(Expression):
     arg_types = {"this": True, "default": False}
 
 
+class RecursiveWithSearch(Expression):
+    arg_types = {"kind": True, "this": True, "expression": True, "using": False}
+
+
 class With(Expression):
-    arg_types = {"expressions": True, "recursive": False}
+    arg_types = {"expressions": True, "recursive": False, "search": False}
 
     @property
     def recursive(self) -> bool:
@@ -1608,7 +1613,7 @@ class BitString(Condition):
 
 
 class HexString(Condition):
-    pass
+    arg_types = {"this": True, "is_integer": False}
 
 
 class ByteString(Condition):
@@ -1698,7 +1703,13 @@ class AlterColumn(Expression):
         "drop": False,
         "comment": False,
         "allow_null": False,
+        "visible": False,
     }
+
+
+# https://dev.mysql.com/doc/refman/8.0/en/invisible-indexes.html
+class AlterIndex(Expression):
+    arg_types = {"this": True, "visible": True}
 
 
 # https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_TABLE.html
@@ -2352,8 +2363,7 @@ class Fetch(Expression):
     arg_types = {
         "direction": False,
         "count": False,
-        "percent": False,
-        "with_ties": False,
+        "limit_options": False,
     }
 
 
@@ -2395,7 +2405,21 @@ class Lambda(Expression):
 
 
 class Limit(Expression):
-    arg_types = {"this": False, "expression": True, "offset": False, "expressions": False}
+    arg_types = {
+        "this": False,
+        "expression": True,
+        "offset": False,
+        "limit_options": False,
+        "expressions": False,
+    }
+
+
+class LimitOptions(Expression):
+    arg_types = {
+        "percent": False,
+        "rows": False,
+        "with_ties": False,
+    }
 
 
 class Literal(Condition):
@@ -3001,6 +3025,10 @@ class StabilityProperty(Property):
     arg_types = {"this": True}
 
 
+class StorageHandlerProperty(Property):
+    arg_types = {"this": True}
+
+
 class TemporaryProperty(Property):
     arg_types = {"this": False}
 
@@ -3067,6 +3095,10 @@ class EncodeProperty(Property):
 
 class IncludeProperty(Property):
     arg_types = {"this": True, "alias": False, "column_def": False}
+
+
+class ForceProperty(Property):
+    arg_types = {}
 
 
 class Properties(Expression):
@@ -3225,6 +3257,11 @@ class IndexTableHint(Expression):
 # https://docs.snowflake.com/en/sql-reference/constructs/at-before
 class HistoricalData(Expression):
     arg_types = {"this": True, "kind": True, "expression": True}
+
+
+# https://docs.snowflake.com/en/sql-reference/sql/put
+class Put(Expression):
+    arg_types = {"this": True, "target": True, "properties": False}
 
 
 class Table(Expression):
@@ -4377,6 +4414,7 @@ class DataType(Expression):
         BIGSERIAL = auto()
         BINARY = auto()
         BIT = auto()
+        BLOB = auto()
         BOOLEAN = auto()
         BPCHAR = auto()
         CHAR = auto()
@@ -4475,8 +4513,8 @@ class DataType(Expression):
         UINT256 = auto()
         UMEDIUMINT = auto()
         UDECIMAL = auto()
+        UDOUBLE = auto()
         UNION = auto()
-        UNIQUEIDENTIFIER = auto()
         UNKNOWN = auto()  # Sentinel value, useful for type annotation
         USERDEFINED = "USER-DEFINED"
         USMALLINT = auto()
@@ -4559,6 +4597,7 @@ class DataType(Expression):
         Type.MONEY,
         Type.SMALLMONEY,
         Type.UDECIMAL,
+        Type.UDOUBLE,
     }
 
     NUMERIC_TYPES = {
@@ -4825,14 +4864,6 @@ class Add(Binary):
 
 
 class Connector(Binary):
-    pass
-
-
-class And(Connector):
-    pass
-
-
-class Or(Connector):
     pass
 
 
@@ -5289,11 +5320,11 @@ class AnonymousAggFunc(AggFunc):
 
 # https://clickhouse.com/docs/en/sql-reference/aggregate-functions/combinators
 class CombinedAggFunc(AnonymousAggFunc):
-    arg_types = {"this": True, "expressions": False, "parts": True}
+    arg_types = {"this": True, "expressions": False}
 
 
 class CombinedParameterizedAgg(ParameterizedAgg):
-    arg_types = {"this": True, "expressions": True, "params": True, "parts": True}
+    arg_types = {"this": True, "expressions": True, "params": True}
 
 
 # https://docs.snowflake.com/en/sql-reference/functions/hll
@@ -5556,6 +5587,11 @@ class Cast(Func):
 
 
 class TryCast(Cast):
+    pass
+
+
+# https://clickhouse.com/docs/sql-reference/data-types/newjson#reading-json-paths-as-sub-columns
+class JSONCast(Cast):
     pass
 
 
@@ -5960,6 +5996,14 @@ class LowerHex(Hex):
     pass
 
 
+class And(Connector, Func):
+    pass
+
+
+class Or(Connector, Func):
+    pass
+
+
 class Xor(Connector, Func):
     arg_types = {"this": False, "expression": False, "expressions": False}
 
@@ -6182,6 +6226,7 @@ class JSONExtract(Binary, Func):
         "json_query": False,
         "option": False,
         "quote": False,
+        "on_condition": False,
     }
     _sql_names = ["JSON_EXTRACT"]
     is_var_len_args = True
@@ -6821,7 +6866,7 @@ class Year(Func):
 
 
 class Use(Expression):
-    arg_types = {"this": True, "kind": False}
+    arg_types = {"this": False, "expressions": False, "kind": False}
 
 
 class Merge(DML):

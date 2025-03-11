@@ -525,7 +525,7 @@ class TSQL(Dialect):
             "TOP": TokenType.TOP,
             "TIMESTAMP": TokenType.ROWVERSION,
             "TINYINT": TokenType.UTINYINT,
-            "UNIQUEIDENTIFIER": TokenType.UNIQUEIDENTIFIER,
+            "UNIQUEIDENTIFIER": TokenType.UUID,
             "UPDATE STATISTICS": TokenType.COMMAND,
             "XML": TokenType.XML,
         }
@@ -579,6 +579,7 @@ class TSQL(Dialect):
             "JSON_VALUE": parser.build_extract_json_with_path(exp.JSONExtractScalar),
             "LEN": _build_with_arg_as_text(exp.Length),
             "LEFT": _build_with_arg_as_text(exp.Left),
+            "NEWID": exp.Uuid.from_arg_list,
             "RIGHT": _build_with_arg_as_text(exp.Right),
             "PARSENAME": _build_parsename,
             "REPLICATE": exp.Repeat.from_arg_list,
@@ -919,6 +920,7 @@ class TSQL(Dialect):
             exp.DataType.Type.SMALLDATETIME: "SMALLDATETIME",
             exp.DataType.Type.UTINYINT: "TINYINT",
             exp.DataType.Type.VARIANT: "SQL_VARIANT",
+            exp.DataType.Type.UUID: "UNIQUEIDENTIFIER",
         }
 
         TYPE_MAPPING.pop(exp.DataType.Type.NCHAR)
@@ -974,6 +976,7 @@ class TSQL(Dialect):
             exp.TsOrDsAdd: date_delta_sql("DATEADD", cast=True),
             exp.TsOrDsDiff: date_delta_sql("DATEDIFF"),
             exp.TimestampTrunc: lambda self, e: self.func("DATETRUNC", e.unit, e.this),
+            exp.Uuid: lambda *_: "NEWID()",
             exp.DateFromParts: rename_func("DATEFROMPARTS"),
         }
 
@@ -1278,20 +1281,6 @@ class TSQL(Dialect):
             if expression.args["kind"] == "VIEW":
                 expression.this.set("catalog", None)
             return super().drop_sql(expression)
-
-        def declare_sql(self, expression: exp.Declare) -> str:
-            return f"DECLARE {self.expressions(expression, flat=True)}"
-
-        def declareitem_sql(self, expression: exp.DeclareItem) -> str:
-            variable = self.sql(expression, "this")
-            default = self.sql(expression, "default")
-            default = f" = {default}" if default else ""
-
-            kind = self.sql(expression, "kind")
-            if isinstance(expression.args.get("kind"), exp.Schema):
-                kind = f"TABLE {kind}"
-
-            return f"{variable} AS {kind}{default}"
 
         def options_modifier(self, expression: exp.Expression) -> str:
             options = self.expressions(expression, key="options")

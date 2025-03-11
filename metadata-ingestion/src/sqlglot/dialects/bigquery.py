@@ -27,6 +27,7 @@ from sqlglot.dialects.dialect import (
     ts_or_ds_add_cast,
     unit_to_var,
     strposition_sql,
+    groupconcat_sql,
 )
 from sqlglot.helper import seq_get, split_num_words
 from sqlglot.tokens import TokenType
@@ -356,6 +357,7 @@ class BigQuery(Dialect):
     FORCE_EARLY_ALIAS_REF_EXPANSION = True
     EXPAND_ALIAS_REFS_EARLY_ONLY_IN_GROUP_BY = True
     PRESERVE_ORIGINAL_NAMES = True
+    HEX_STRING_IS_INTEGER_TYPE = True
 
     # https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#case_sensitivity
     NORMALIZATION_STRATEGY = NormalizationStrategy.CASE_INSENSITIVE
@@ -901,8 +903,11 @@ class BigQuery(Dialect):
                 "DATETIME", self.func("TIMESTAMP", e.this, e.args.get("zone")), "'UTC'"
             ),
             exp.GenerateSeries: rename_func("GENERATE_ARRAY"),
-            exp.GroupConcat: rename_func("STRING_AGG"),
+            exp.GroupConcat: lambda self, e: groupconcat_sql(
+                self, e, func_name="STRING_AGG", within_group=False
+            ),
             exp.Hex: lambda self, e: self.func("UPPER", self.func("TO_HEX", self.sql(e, "this"))),
+            exp.HexString: lambda self, e: self.hexstring_sql(e, binary_function_repr="FROM_HEX"),
             exp.If: if_sql(false_value="NULL"),
             exp.ILike: no_ilike_sql,
             exp.IntDiv: rename_func("DIV"),
@@ -987,6 +992,7 @@ class BigQuery(Dialect):
             exp.DataType.Type.BIGDECIMAL: "BIGNUMERIC",
             exp.DataType.Type.BIGINT: "INT64",
             exp.DataType.Type.BINARY: "BYTES",
+            exp.DataType.Type.BLOB: "BYTES",
             exp.DataType.Type.BOOLEAN: "BOOL",
             exp.DataType.Type.CHAR: "STRING",
             exp.DataType.Type.DECIMAL: "NUMERIC",
@@ -1245,7 +1251,12 @@ class BigQuery(Dialect):
         def cast_sql(self, expression: exp.Cast, safe_prefix: t.Optional[str] = None) -> str:
             this = expression.this
 
+            # This ensures that inline type-annotated ARRAY literals like ARRAY<INT64>[1, 2, 3]
+            # are roundtripped unaffected. The inner check excludes ARRAY(SELECT ...) expressions,
+            # because they aren't literals and so the above syntax is invalid BigQuery.
             if isinstance(this, exp.Array):
-                return f"{self.sql(expression, 'to')}{self.sql(this)}"
+                elem = seq_get(this.expressions, 0)
+                if not (elem and elem.find(exp.Query)):
+                    return f"{self.sql(expression, 'to')}{self.sql(this)}"
 
             return super().cast_sql(expression, safe_prefix=safe_prefix)

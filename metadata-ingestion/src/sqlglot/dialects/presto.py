@@ -222,6 +222,7 @@ class Presto(Dialect):
     }
 
     class Tokenizer(tokens.Tokenizer):
+        HEX_STRINGS = [("x'", "'"), ("X'", "'")]
         UNICODE_STRINGS = [
             (prefix + q, q)
             for q in t.cast(t.List[str], tokens.Tokenizer.QUOTES)
@@ -400,7 +401,6 @@ class Presto(Dialect):
             exp.If: if_sql(),
             exp.ILike: no_ilike_sql,
             exp.Initcap: _initcap_sql,
-            exp.JSONExtract: lambda self, e: self.jsonextract_sql(e),
             exp.Last: _first_last_sql,
             exp.LastDay: lambda self, e: self.func("LAST_DAY_OF_MONTH", e.this),
             exp.Lateral: explode_to_unnest_sql,

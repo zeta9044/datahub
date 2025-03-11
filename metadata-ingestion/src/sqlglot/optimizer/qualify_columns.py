@@ -102,7 +102,10 @@ def qualify_columns(
             qualify_outputs(scope)
 
         _expand_group_by(scope, dialect)
-        _expand_order_by(scope, resolver)
+
+        # DISTINCT ON and ORDER BY follow the same rules (tested in DuckDB, Postgres, ClickHouse)
+        # https://www.postgresql.org/docs/current/sql-select.html#SQL-DISTINCT
+        _expand_order_by_and_distinct_on(scope, resolver)
 
         if dialect == "bigquery":
             annotator.annotate_scope(scope)
@@ -359,36 +362,41 @@ def _expand_group_by(scope: Scope, dialect: DialectType) -> None:
     expression.set("group", group)
 
 
-def _expand_order_by(scope: Scope, resolver: Resolver) -> None:
-    order = scope.expression.args.get("order")
-    if not order:
-        return
+def _expand_order_by_and_distinct_on(scope: Scope, resolver: Resolver) -> None:
+    for modifier_key in ("order", "distinct"):
+        modifier = scope.expression.args.get(modifier_key)
+        if isinstance(modifier, exp.Distinct):
+            modifier = modifier.args.get("on")
 
-    ordereds = order.expressions
-    for ordered, new_expression in zip(
-        ordereds,
-        _expand_positional_references(
-            scope, (o.this for o in ordereds), resolver.schema.dialect, alias=True
-        ),
-    ):
-        for agg in ordered.find_all(exp.AggFunc):
-            for col in agg.find_all(exp.Column):
-                if not col.table:
-                    col.set("table", resolver.get_table(col.name))
+        if not isinstance(modifier, exp.Expression):
+            continue
 
-        ordered.set("this", new_expression)
+        modifier_expressions = modifier.expressions
+        if modifier_key == "order":
+            modifier_expressions = [ordered.this for ordered in modifier_expressions]
 
-    if scope.expression.args.get("group"):
-        selects = {s.this: exp.column(s.alias_or_name) for s in scope.expression.selects}
+        for original, expanded in zip(
+            modifier_expressions,
+            _expand_positional_references(
+                scope, modifier_expressions, resolver.schema.dialect, alias=True
+            ),
+        ):
+            for agg in original.find_all(exp.AggFunc):
+                for col in agg.find_all(exp.Column):
+                    if not col.table:
+                        col.set("table", resolver.get_table(col.name))
 
-        for ordered in ordereds:
-            ordered = ordered.this
+            original.replace(expanded)
 
-            ordered.replace(
-                exp.to_identifier(_select_by_pos(scope, ordered).alias)
-                if ordered.is_int
-                else selects.get(ordered, ordered)
-            )
+        if scope.expression.args.get("group"):
+            selects = {s.this: exp.column(s.alias_or_name) for s in scope.expression.selects}
+
+            for expression in modifier_expressions:
+                expression.replace(
+                    exp.to_identifier(_select_by_pos(scope, expression).alias)
+                    if expression.is_int
+                    else selects.get(expression, expression)
+                )
 
 
 def _expand_positional_references(
@@ -457,14 +465,61 @@ def _convert_columns_to_dots(scope: Scope, resolver: Resolver) -> None:
             continue
 
         column_table: t.Optional[str | exp.Identifier] = column.table
+
+        # Skip if column doesn't have a table
+        if not column_table:
+            continue
+
+        # If the table is in the current scope's sources, it's not a struct field access
+        if column_table in scope.sources:
+            continue
+
+        # Check if the column's table is a PIVOT/UNPIVOT alias in the current scope first
+        is_pivot_unpivot_alias = False
+
+        # Check in current scope
+        if scope.pivots:
+            for pivot in scope.pivots:
+                if pivot.alias and (
+                    (isinstance(column_table, str) and column_table == pivot.alias)
+                    or (
+                        isinstance(column_table, exp.Identifier)
+                        and column_table.name == pivot.alias
+                    )
+                ):
+                    is_pivot_unpivot_alias = True
+                    break
+
+        # Only check parent scopes if not found in current scope
+        if not is_pivot_unpivot_alias and scope.parent:
+            current_scope = scope.parent
+            while current_scope and not is_pivot_unpivot_alias:
+                if current_scope.pivots:
+                    for pivot in current_scope.pivots:
+                        if pivot.alias and (
+                            (isinstance(column_table, str) and column_table == pivot.alias)
+                            or (
+                                isinstance(column_table, exp.Identifier)
+                                and column_table.name == pivot.alias
+                            )
+                        ):
+                            is_pivot_unpivot_alias = True
+                            break
+                current_scope = current_scope.parent
+
+        # Skip dot conversion for columns with tables that are PIVOT/UNPIVOT aliases
+        if is_pivot_unpivot_alias:
+            continue
+
+        # At this point, we have a column with a table that's:
+        # 1. Not in the current scope's sources
+        # 2. Not a PIVOT/UNPIVOT alias in any scope
+        # So it might be a struct field access
+
         if (
-            column_table
-            and column_table not in scope.sources
-            and (
-                not scope.parent
-                or column_table not in scope.parent.sources
-                or not scope.is_correlated_subquery
-            )
+            not scope.parent
+            or column_table not in scope.parent.sources
+            or not scope.is_correlated_subquery
         ):
             root, *parts = column.parts
 

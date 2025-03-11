@@ -210,6 +210,7 @@ class Generator(metaclass=_Generator):
         exp.WithProcedureOptions: lambda self, e: f"WITH {self.expressions(e, flat=True)}",
         exp.WithSchemaBindingProperty: lambda self, e: f"WITH SCHEMA {self.sql(e, 'this')}",
         exp.WithOperator: lambda self, e: f"{self.sql(e, 'this')} WITH {self.sql(e, 'op')}",
+        exp.ForceProperty: lambda *_: "FORCE",
     }
 
     # Whether null ordering is supported in order by
@@ -467,6 +468,7 @@ class Generator(metaclass=_Generator):
         exp.DataType.Type.MEDIUMTEXT: "TEXT",
         exp.DataType.Type.LONGTEXT: "TEXT",
         exp.DataType.Type.TINYTEXT: "TEXT",
+        exp.DataType.Type.BLOB: "VARBINARY",
         exp.DataType.Type.MEDIUMBLOB: "BLOB",
         exp.DataType.Type.LONGBLOB: "BLOB",
         exp.DataType.Type.TINYBLOB: "BLOB",
@@ -584,6 +586,7 @@ class Generator(metaclass=_Generator):
         exp.SqlReadWriteProperty: exp.Properties.Location.POST_SCHEMA,
         exp.SqlSecurityProperty: exp.Properties.Location.POST_CREATE,
         exp.StabilityProperty: exp.Properties.Location.POST_SCHEMA,
+        exp.StorageHandlerProperty: exp.Properties.Location.POST_SCHEMA,
         exp.StreamingTableProperty: exp.Properties.Location.POST_CREATE,
         exp.StrictProperty: exp.Properties.Location.POST_SCHEMA,
         exp.Tags: exp.Properties.Location.POST_WITH,
@@ -600,6 +603,7 @@ class Generator(metaclass=_Generator):
         exp.WithProcedureOptions: exp.Properties.Location.POST_SCHEMA,
         exp.WithSchemaBindingProperty: exp.Properties.Location.POST_SCHEMA,
         exp.WithSystemVersioningProperty: exp.Properties.Location.POST_SCHEMA,
+        exp.ForceProperty: exp.Properties.Location.POST_CREATE,
     }
 
     # Keywords that can't be used as unquoted identifier names
@@ -1238,8 +1242,10 @@ class Generator(metaclass=_Generator):
             if self.CTE_RECURSIVE_KEYWORD_REQUIRED and expression.args.get("recursive")
             else ""
         )
+        search = self.sql(expression, "search")
+        search = f" {search}" if search else ""
 
-        return f"WITH {recursive}{sql}"
+        return f"WITH {recursive}{sql}{search}"
 
     def cte_sql(self, expression: exp.CTE) -> str:
         alias = expression.args.get("alias")
@@ -1276,11 +1282,30 @@ class Generator(metaclass=_Generator):
             return f"{self.dialect.BIT_START}{this}{self.dialect.BIT_END}"
         return f"{int(this, 2)}"
 
-    def hexstring_sql(self, expression: exp.HexString) -> str:
+    def hexstring_sql(
+        self, expression: exp.HexString, binary_function_repr: t.Optional[str] = None
+    ) -> str:
         this = self.sql(expression, "this")
-        if self.dialect.HEX_START:
-            return f"{self.dialect.HEX_START}{this}{self.dialect.HEX_END}"
-        return f"{int(this, 16)}"
+        is_integer_type = expression.args.get("is_integer")
+
+        if (is_integer_type and not self.dialect.HEX_STRING_IS_INTEGER_TYPE) or (
+            not self.dialect.HEX_START and not binary_function_repr
+        ):
+            # Integer representation will be returned if:
+            # - The read dialect treats the hex value as integer literal but not the write
+            # - The transpilation is not supported (write dialect hasn't set HEX_START or the param flag)
+            return f"{int(this, 16)}"
+
+        if not is_integer_type:
+            # Read dialect treats the hex value as BINARY/BLOB
+            if binary_function_repr:
+                # The write dialect supports the transpilation to its equivalent BINARY/BLOB
+                return self.func(binary_function_repr, exp.Literal.string(this))
+            if self.dialect.HEX_STRING_IS_INTEGER_TYPE:
+                # The write dialect does not support the transpilation, it'll treat the hex value as INTEGER
+                self.unsupported("Unsupported transpilation from BINARY/BLOB hex string")
+
+        return f"{self.dialect.HEX_START}{this}{self.dialect.HEX_END}"
 
     def bytestring_sql(self, expression: exp.ByteString) -> str:
         this = self.sql(expression, "this")
@@ -1467,10 +1492,17 @@ class Generator(metaclass=_Generator):
         direction = f" {direction}" if direction else ""
         count = self.sql(expression, "count")
         count = f" {count}" if count else ""
-        if expression.args.get("percent"):
-            count = f"{count} PERCENT"
-        with_ties_or_only = "WITH TIES" if expression.args.get("with_ties") else "ONLY"
-        return f"{self.seg('FETCH')}{direction}{count} ROWS {with_ties_or_only}"
+        limit_options = self.sql(expression, "limit_options")
+        limit_options = f"{limit_options}" if limit_options else " ROWS ONLY"
+        return f"{self.seg('FETCH')}{direction}{count}{limit_options}"
+
+    def limitoptions_sql(self, expression: exp.LimitOptions) -> str:
+        percent = " PERCENT" if expression.args.get("percent") else ""
+        rows = " ROWS" if expression.args.get("rows") else ""
+        with_ties = " WITH TIES" if expression.args.get("with_ties") else ""
+        if not with_ties and rows:
+            with_ties = " ONLY"
+        return f"{percent}{rows}{with_ties}"
 
     def filter_sql(self, expression: exp.Filter) -> str:
         if self.AGGREGATE_FILTER_SUPPORTED:
@@ -2261,9 +2293,10 @@ class Generator(metaclass=_Generator):
         args_sql = ", ".join(self.sql(e) for e in args)
         args_sql = f"({args_sql})" if top and any(not e.is_number for e in args) else args_sql
         expressions = self.expressions(expression, flat=True)
+        limit_options = self.sql(expression, "limit_options")
         expressions = f" BY {expressions}" if expressions else ""
 
-        return f"{this}{self.seg('TOP' if top else 'LIMIT')} {args_sql}{expressions}"
+        return f"{this}{self.seg('TOP' if top else 'LIMIT')} {args_sql}{limit_options}{expressions}"
 
     def offset_sql(self, expression: exp.Offset) -> str:
         this = self.sql(expression, "this")
@@ -2284,9 +2317,7 @@ class Generator(metaclass=_Generator):
         return f"{global_}{kind}{this}{expressions}{collate}"
 
     def set_sql(self, expression: exp.Set) -> str:
-        expressions = (
-            f" {self.expressions(expression, flat=True)}" if expression.expressions else ""
-        )
+        expressions = f" {self.expressions(expression, flat=True)}"
         tag = " TAG" if expression.args.get("tag") else ""
         return f"{'UNSET' if expression.args.get('unset') else 'SET'}{tag}{expressions}"
 
@@ -3265,6 +3296,10 @@ class Generator(metaclass=_Generator):
         if comment:
             return f"ALTER COLUMN {this} COMMENT {comment}"
 
+        visible = expression.args.get("visible")
+        if visible:
+            return f"ALTER COLUMN {this} SET {visible}"
+
         allow_null = expression.args.get("allow_null")
         drop = expression.args.get("drop")
 
@@ -3276,6 +3311,14 @@ class Generator(metaclass=_Generator):
             return f"ALTER COLUMN {this} {keyword} NOT NULL"
 
         return f"ALTER COLUMN {this} DROP DEFAULT"
+
+    def alterindex_sql(self, expression: exp.AlterIndex) -> str:
+        this = self.sql(expression, "this")
+
+        visible = expression.args.get("visible")
+        visible_sql = "VISIBLE" if visible else "INVISIBLE"
+
+        return f"ALTER INDEX {this} {visible_sql}"
 
     def alterdiststyle_sql(self, expression: exp.AlterDistStyle) -> str:
         this = self.sql(expression, "this")
@@ -3499,6 +3542,9 @@ class Generator(metaclass=_Generator):
     def trycast_sql(self, expression: exp.TryCast) -> str:
         return self.cast_sql(expression, safe_prefix="TRY_")
 
+    def jsoncast_sql(self, expression: exp.JSONCast) -> str:
+        return self.cast_sql(expression)
+
     def try_sql(self, expression: exp.Try) -> str:
         if not self.TRY_SUPPORTED:
             self.unsupported("Unsupported TRY function")
@@ -3523,7 +3569,7 @@ class Generator(metaclass=_Generator):
     def use_sql(self, expression: exp.Use) -> str:
         kind = self.sql(expression, "kind")
         kind = f" {kind}" if kind else ""
-        this = self.sql(expression, "this")
+        this = self.sql(expression, "this") or self.expressions(expression, flat=True)
         this = f" {this}" if this else ""
         return f"USE{kind}{this}"
 
@@ -4762,3 +4808,52 @@ class Generator(metaclass=_Generator):
         connection = f"WITH CONNECTION {connection} " if connection else ""
         options = self.sql(expression, "options")
         return f"EXPORT DATA {connection}{options} AS {this}"
+
+    def declare_sql(self, expression: exp.Declare) -> str:
+        return f"DECLARE {self.expressions(expression, flat=True)}"
+
+    def declareitem_sql(self, expression: exp.DeclareItem) -> str:
+        variable = self.sql(expression, "this")
+        default = self.sql(expression, "default")
+        default = f" = {default}" if default else ""
+
+        kind = self.sql(expression, "kind")
+        if isinstance(expression.args.get("kind"), exp.Schema):
+            kind = f"TABLE {kind}"
+
+        return f"{variable} AS {kind}{default}"
+
+    def recursivewithsearch_sql(self, expression: exp.RecursiveWithSearch) -> str:
+        kind = self.sql(expression, "kind")
+        this = self.sql(expression, "this")
+        set = self.sql(expression, "expression")
+        using = self.sql(expression, "using")
+        using = f" USING {using}" if using else ""
+
+        kind_sql = kind if kind == "CYCLE" else f"SEARCH {kind} FIRST BY"
+
+        return f"{kind_sql} {this} SET {set}{using}"
+
+    def parameterizedagg_sql(self, expression: exp.ParameterizedAgg) -> str:
+        params = self.expressions(expression, key="params", flat=True)
+        return self.func(expression.name, *expression.expressions) + f"({params})"
+
+    def anonymousaggfunc_sql(self, expression: exp.AnonymousAggFunc) -> str:
+        return self.func(expression.name, *expression.expressions)
+
+    def combinedaggfunc_sql(self, expression: exp.CombinedAggFunc) -> str:
+        return self.anonymousaggfunc_sql(expression)
+
+    def combinedparameterizedagg_sql(self, expression: exp.CombinedParameterizedAgg) -> str:
+        return self.parameterizedagg_sql(expression)
+
+    def show_sql(self, expression: exp.Show) -> str:
+        self.unsupported("Unsupported SHOW statement")
+        return ""
+
+    def put_sql(self, expression: exp.Put) -> str:
+        props = expression.args.get("properties")
+        props_sql = self.properties(props, prefix=" ", sep=" ", wrapped=False) if props else ""
+        this = self.sql(expression, "this")
+        target = self.sql(expression, "target")
+        return f"PUT {this} {target}{props_sql}"

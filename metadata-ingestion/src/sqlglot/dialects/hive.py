@@ -187,6 +187,12 @@ def _build_with_ignore_nulls(
     return _parse
 
 
+def _build_to_date(args: t.List) -> exp.TsOrDsToDate:
+    expr = build_formatted_time(exp.TsOrDsToDate, "hive")(args)
+    expr.set("safe", True)
+    return expr
+
+
 class Hive(Dialect):
     ALIAS_POST_TABLESAMPLE = True
     IDENTIFIERS_CAN_START_WITH_DIGIT = True
@@ -227,6 +233,8 @@ class Hive(Dialect):
         "EE": "%a",
         "EEE": "%a",
         "EEEE": "%A",
+        "z": "%Z",
+        "Z": "%z",
     }
 
     DATE_FORMAT = "'yyyy-MM-dd'"
@@ -318,7 +326,7 @@ class Hive(Dialect):
                 pair_delim=seq_get(args, 1) or exp.Literal.string(","),
                 key_value_delim=seq_get(args, 2) or exp.Literal.string(":"),
             ),
-            "TO_DATE": build_formatted_time(exp.TsOrDsToDate, "hive"),
+            "TO_DATE": _build_to_date,
             "TO_JSON": exp.JSONFormat.from_arg_list,
             "TRUNC": exp.TimestampTrunc.from_arg_list,
             "UNBASE64": exp.FromBase64.from_arg_list,
@@ -480,6 +488,7 @@ class Hive(Dialect):
         TYPE_MAPPING = {
             **generator.Generator.TYPE_MAPPING,
             exp.DataType.Type.BIT: "BOOLEAN",
+            exp.DataType.Type.BLOB: "BINARY",
             exp.DataType.Type.DATETIME: "TIMESTAMP",
             exp.DataType.Type.ROWVERSION: "BINARY",
             exp.DataType.Type.TEXT: "STRING",
@@ -511,6 +520,7 @@ class Hive(Dialect):
             e: f"TO_DATE(CAST({self.sql(e, 'this')} AS STRING), {Hive.DATEINT_FORMAT})",
             exp.FileFormatProperty: lambda self,
             e: f"STORED AS {self.sql(e, 'this') if isinstance(e.this, exp.InputOutputFormat) else e.name.upper()}",
+            exp.StorageHandlerProperty: lambda self, e: f"STORED BY {self.sql(e, 'this')}",
             exp.FromBase64: rename_func("UNBASE64"),
             exp.GenerateSeries: sequence_sql,
             exp.GenerateDateArray: sequence_sql,
