@@ -14,12 +14,12 @@ if t.TYPE_CHECKING:
 
 
 def qualify_tables(
-        expression: E,
-        db: t.Optional[str | exp.Identifier] = None,
-        catalog: t.Optional[str | exp.Identifier] = None,
-        schema: t.Optional[Schema] = None,
-        infer_csv_schemas: bool = False,
-        dialect: DialectType = None,
+    expression: E,
+    db: t.Optional[str | exp.Identifier] = None,
+    catalog: t.Optional[str | exp.Identifier] = None,
+    schema: t.Optional[Schema] = None,
+    infer_csv_schemas: bool = False,
+    dialect: DialectType = None,
 ) -> E:
     """
     Rewrite sqlglot AST to have fully qualified tables. Join constructs such as
@@ -132,9 +132,9 @@ def qualify_tables(
             else:
                 for node in scope.walk():
                     if (
-                            isinstance(node, exp.Table)
-                            and not node.alias
-                            and isinstance(node.parent, (exp.From, exp.Join))
+                        isinstance(node, exp.Table)
+                        and not node.alias
+                        and isinstance(node.parent, (exp.From, exp.Join))
                     ):
                         # Mutates the table by attaching an alias to it
                         alias(node, node.name, copy=False, table=True)

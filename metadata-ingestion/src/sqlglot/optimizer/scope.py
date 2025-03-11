@@ -282,7 +282,14 @@ class Scope:
             self._columns = []
             for column in columns + external_columns:
                 ancestor = column.find_ancestor(
-                    exp.Select, exp.Qualify, exp.Order, exp.Having, exp.Hint, exp.Table, exp.Star
+                    exp.Select,
+                    exp.Qualify,
+                    exp.Order,
+                    exp.Having,
+                    exp.Hint,
+                    exp.Table,
+                    exp.Star,
+                    exp.Distinct,
                 )
                 if (
                     not ancestor
@@ -290,9 +297,9 @@ class Scope:
                     or isinstance(ancestor, exp.Select)
                     or (isinstance(ancestor, exp.Table) and not isinstance(ancestor.this, exp.Func))
                     or (
-                        isinstance(ancestor, exp.Order)
+                        isinstance(ancestor, (exp.Order, exp.Distinct))
                         and (
-                            isinstance(ancestor.parent, exp.Window)
+                            isinstance(ancestor.parent, (exp.Window, exp.WithinGroup))
                             or column.name not in named_selects
                         )
                     )
@@ -477,16 +484,9 @@ class Scope:
             Scope: scope instances in depth-first-search post-order
         """
         stack = [self]
-        seen_scopes = set()
         result = []
         while stack:
             scope = stack.pop()
-
-            # Scopes aren't hashable, so we use id(scope) instead.
-            if id(scope) in seen_scopes:
-                raise OptimizeError(f"Scope {scope} has a circular scope dependency")
-            seen_scopes.add(id(scope))
-
             result.append(scope)
             stack.extend(
                 itertools.chain(

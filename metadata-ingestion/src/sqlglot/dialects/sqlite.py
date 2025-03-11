@@ -140,6 +140,7 @@ class SQLite(Dialect):
         SUPPORTS_TO_NUMBER = False
         EXCEPT_INTERSECT_SUPPORT_ALL_CLAUSE = False
         SUPPORTS_MEDIAN = False
+        JSON_KEY_VALUE_PAIR_SEP = ","
 
         SUPPORTED_JSON_PATH_PARTS = {
             exp.JSONPathKey,
@@ -164,6 +165,7 @@ class SQLite(Dialect):
             exp.DataType.Type.BINARY: "BLOB",
             exp.DataType.Type.VARBINARY: "BLOB",
         }
+        TYPE_MAPPING.pop(exp.DataType.Type.BLOB)
 
         TOKEN_MAPPING = {
             TokenType.AUTO_INCREMENT: "AUTOINCREMENT",

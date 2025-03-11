@@ -16,7 +16,7 @@ if t.TYPE_CHECKING:
     from sqlglot import exp
     from sqlglot._typing import A, E, T
     from sqlglot.expressions import Expression
-    from sqlglot.optimizer import Scope
+
 
 CAMEL_CASE_PATTERN = re.compile("(?<!^)(?=[A-Z])")
 PYTHON_VERSION = sys.version_info[:2]
@@ -122,9 +122,9 @@ def csv(*args: str, sep: str = ", ") -> str:
 
 
 def subclasses(
-        module_name: str,
-        classes: t.Type | t.Tuple[t.Type, ...],
-        exclude: t.Type | t.Tuple[t.Type, ...] = (),
+    module_name: str,
+    classes: t.Type | t.Tuple[t.Type, ...],
+    exclude: t.Type | t.Tuple[t.Type, ...] = (),
 ) -> t.List[t.Type]:
     """
     Returns all subclasses for a collection of classes, possibly excluding some of them.
@@ -147,9 +147,9 @@ def subclasses(
 
 
 def apply_index_offset(
-        this: exp.Expression,
-        expressions: t.List[E],
-        offset: int,
+    this: exp.Expression,
+    expressions: t.List[E],
+    offset: int,
 ) -> t.List[E]:
     """
     Applies an offset to a given integer literal expression.
@@ -176,8 +176,8 @@ def apply_index_offset(
         annotate_types(this)
 
     if t.cast(exp.DataType, this.type).this not in (
-            exp.DataType.Type.UNKNOWN,
-            exp.DataType.Type.ARRAY,
+        exp.DataType.Type.UNKNOWN,
+        exp.DataType.Type.ARRAY,
     ):
         return expressions
 
@@ -352,7 +352,7 @@ def object_to_dict(obj: t.Any, **kwargs) -> t.Dict:
 
 
 def split_num_words(
-        value: str, sep: str, min_num_words: int, fill_from_start: bool = True
+    value: str, sep: str, min_num_words: int, fill_from_start: bool = True
 ) -> t.List[t.Optional[str]]:
     """
     Perform a split on a value and return N words as a result with `None` used for words that don't exist.

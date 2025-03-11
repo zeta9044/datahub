@@ -66,14 +66,14 @@ class Node:
 
 
 def lineage(
-        column: str | exp.Column,
-        sql: str | exp.Expression,
-        schema: t.Optional[t.Dict | Schema] = None,
-        sources: t.Optional[t.Mapping[str, str | exp.Query]] = None,
-        dialect: DialectType = None,
-        scope: t.Optional[Scope] = None,
-        trim_selects: bool = True,
-        **kwargs,
+    column: str | exp.Column,
+    sql: str | exp.Expression,
+    schema: t.Optional[t.Dict | Schema] = None,
+    sources: t.Optional[t.Mapping[str, str | exp.Query]] = None,
+    dialect: DialectType = None,
+    scope: t.Optional[Scope] = None,
+    trim_selects: bool = True,
+    **kwargs,
 ) -> Node:
     """Build the lineage graph for a column of a SQL query.
 
@@ -122,14 +122,14 @@ def lineage(
 
 
 def to_node(
-        column: str | int,
-        scope: Scope,
-        dialect: DialectType,
-        scope_name: t.Optional[str] = None,
-        upstream: t.Optional[Node] = None,
-        source_name: t.Optional[str] = None,
-        reference_node_name: t.Optional[str] = None,
-        trim_selects: bool = True,
+    column: str | int,
+    scope: Scope,
+    dialect: DialectType,
+    scope_name: t.Optional[str] = None,
+    upstream: t.Optional[Node] = None,
+    source_name: t.Optional[str] = None,
+    reference_node_name: t.Optional[str] = None,
+    trim_selects: bool = True,
 ) -> Node:
     # Find the specific select clause that is the source of the column we want.
     # This can either be a specific, named select or a generic `*` clause.
@@ -236,36 +236,7 @@ def to_node(
             )
 
     # Find all columns that went into creating this one to list their lineage nodes.
-    # Purpose: This code extracts source column lineage information from a SQL select statement
-
-    # Step 1: Check for dot notation references (e.g., table.column)
-    # - Use find_all_in_scope() to search for Dot expressions in the select statement
-    # - Store results in source_columns list
-    source_columns: set[exp.Column] = set(find_all_in_scope(select, exp.Dot))
-
-    if source_columns:
-        # Step 2: If dot notation columns found, convert them to Column objects
-        # - Filter to only include cases where dot.this is a Column
-        # - Create new Column objects with:
-        #   * this = Identifier with the column name from dot.expression.name
-        #   * table = original table reference from dot.this.table
-        source_columns = set(
-            exp.Column(this=exp.Identifier(this=dot.expression.name), table=dot.this.table)
-            for dot in source_columns
-            if isinstance(dot.this, exp.Column)
-        )
-
-        if not source_columns:
-            # Step 3: Find all Column references within scope
-            # - Search again to catch any remaining Column objects
-            source_columns = set(find_all_in_scope(select, exp.Column))
-    else:
-        # Step 4: Fallback - if no dot notation found
-        # - Directly search for all Column objects in scope
-        source_columns = set(find_all_in_scope(select, exp.Column))
-
-    # The final source_columns list contains all source columns that contribute
-    # to the target column's lineage, either from dot notation or direct column references
+    source_columns = set(find_all_in_scope(select, exp.Column))
 
     # If the source is a UDTF find columns used in the UTDF to generate the table
     if isinstance(source, exp.UDTF):
@@ -287,7 +258,15 @@ def to_node(
     pivots = scope.pivots
     pivot = pivots[0] if len(pivots) == 1 else None
     if pivot and not pivot.unpivot:
-        # Existing PIVOT processing logic
+        # For each aggregation function, the pivot creates a new column for each field in category
+        # combined with the aggfunc. So the columns parsed have this order: cat_a_value_sum, cat_a,
+        # b_value_sum, b. Because of this step wise manner the aggfunc 'sum(value) as value_sum'
+        # belongs to the column indices 0, 2, and the aggfunc 'max(price)' without an alias belongs
+        # to the column indices 1, 3. Here, only the columns used in the aggregations are of interest
+        # in the lineage, so lookup the pivot column name by index and map that with the columns used
+        # in the aggregation.
+        #
+        # Example: PIVOT (SUM(value) AS value_sum, MAX(price)) FOR category IN ('a' AS cat_a, 'b')
         pivot_columns = pivot.args["columns"]
         pivot_aggs_count = len(pivot.expressions)
 
@@ -313,8 +292,7 @@ def to_node(
             if column == value_column.name:
                 table_name = pivot.parent.this.name
                 value_column_mapping[value_column.name] = [
-                    exp.Column(this=col.this, table=exp.to_identifier(table_name))
-                    for col in unpivot_source_columns
+                    exp.column(col.this, table=table_name) for col in unpivot_source_columns
                 ]
 
         # If the current column being processed is a value column
@@ -326,36 +304,13 @@ def to_node(
             unpivot_column_mapping[name_column.name] = []
         # Other columns pass through unchanged
         else:
-            unpivot_column_mapping[column] = [
-                exp.Column(this=exp.Identifier(this=column), table=pivot.parent)
-            ]
+            unpivot_column_mapping[column] = [exp.column(str(column), table=pivot.parent.this.name)]
 
     for c in source_columns:
         table = c.table
-        source = scope.sources.get(table) or (pivot.parent if pivot else None)
+        source = scope.sources.get(table)
 
-        if isinstance(source, (exp.Subquery,exp.CTE)):
-            manual_source_scope = build_scope(source)
-            if manual_source_scope is None:
-                # Handle the case where build_scope returns None
-                # This could happen if the source is not a valid SELECT statement
-                source = source or exp.Placeholder()
-                node.downstream.append(
-                    Node(name=c.sql(comments=False), source=source, expression=source)
-                )
-                continue
-
-            to_node(
-                c.name,
-                scope=manual_source_scope,  # Now we know manual_source_scope is not None
-                dialect=dialect,
-                scope_name=table,
-                upstream=node,
-                source_name=source_names.get(table) or source_name,
-                reference_node_name=reference_node_name,
-                trim_selects=trim_selects,
-            )
-        elif isinstance(source, Scope):
+        if isinstance(source, Scope):
             reference_node_name = None
             if source.scope_type == ScopeType.DERIVED_TABLE and table not in source_names:
                 reference_node_name = table
@@ -376,18 +331,20 @@ def to_node(
             )
         elif pivot and pivot.alias_or_name == c.table:
             downstream_columns = []
-
             column_name = c.name
-            if pivot.unpivot:
-                if any(
-                        column_name == unpivot_column.name for unpivot_column in unpivot_source_columns
-                ):
-                    downstream_columns.extend(unpivot_column_mapping[column_name])
-                else:
-                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
-            else:
+
+            if not pivot.unpivot:
                 if any(column_name == pivot_column.name for pivot_column in pivot_columns):
                     downstream_columns.extend(pivot_column_mapping[column_name])
+                else:
+                    # The column is not in the pivot, so it must be an implicit column of the
+                    # pivoted source -- adapt column to be from the implicit pivoted source.
+                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
+            if pivot.unpivot:
+                if any(
+                    column_name == unpivot_column.name for unpivot_column in unpivot_source_columns
+                ):
+                    downstream_columns.extend(unpivot_column_mapping[column_name])
                 else:
                     downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
 
@@ -434,7 +391,7 @@ class GraphHTML:
     """
 
     def __init__(
-            self, nodes: t.Dict, edges: t.List, imports: bool = True, options: t.Optional[t.Dict] = None
+        self, nodes: t.Dict, edges: t.List, imports: bool = True, options: t.Optional[t.Dict] = None
     ):
         self.imports = imports
 

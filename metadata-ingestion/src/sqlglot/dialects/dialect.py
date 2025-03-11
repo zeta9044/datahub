@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import logging
 import typing as t
+import sys
+
 from enum import Enum, auto
 from functools import reduce
 
@@ -101,6 +103,20 @@ class NormalizationStrategy(str, AutoName):
 
     CASE_INSENSITIVE = auto()
     """Always case-insensitive, regardless of quotes."""
+
+
+class Version(int):
+    def __new__(cls, version_str: t.Optional[str], *args, **kwargs):
+        if version_str:
+            parts = version_str.split(".")
+            parts.extend(["0"] * (3 - len(parts)))
+            v = int("".join([p.zfill(3) for p in parts]))
+        else:
+            # No version defined means we should support the latest engine semantics, so
+            # the comparison to any specific version should yield that latest is greater
+            v = sys.maxsize
+
+        return super(Version, cls).__new__(cls, v)
 
 
 class _Dialect(type):
@@ -452,6 +468,9 @@ class Dialect(metaclass=_Dialect):
 
     NUMBERS_CAN_BE_UNDERSCORE_SEPARATED = False
     """Whether number literals can include underscores for better readability"""
+
+    HEX_STRING_IS_INTEGER_TYPE: bool = False
+    """Whether hex strings such as x'CC' evaluate to integer or binary/blob type"""
 
     REGEXP_EXTRACT_DEFAULT_GROUP = 0
     """The default value for the capturing group."""
@@ -1002,6 +1021,10 @@ class Dialect(metaclass=_Dialect):
     def generator(self, **opts) -> Generator:
         return self.generator_class(dialect=self, **opts)
 
+    @property
+    def version(self) -> Version:
+        return Version(self.settings.get("version", None))
+
 
 DialectType = t.Union[str, Dialect, t.Type[Dialect], None]
 
@@ -1384,9 +1407,9 @@ def count_if_to_sum(self: Generator, expression: exp.CountIf) -> str:
     return self.func("sum", exp.func("if", cond, 1, 0))
 
 
-def trim_sql(self: Generator, expression: exp.Trim) -> str:
+def trim_sql(self: Generator, expression: exp.Trim, default_trim_type: str = "") -> str:
     target = self.sql(expression, "this")
-    trim_type = self.sql(expression, "position")
+    trim_type = self.sql(expression, "position") or default_trim_type
     remove_chars = self.sql(expression, "expression")
     collation = self.sql(expression, "collation")
 
@@ -1628,7 +1651,7 @@ def build_json_extract_path(
                 return expr_type.from_arg_list(args)
 
             text = arg.name
-            if is_int(text):
+            if is_int(text) and (not arrow_req_json_type or not arg.is_string):
                 index = int(text)
                 segments.append(
                     exp.JSONPathSubscript(this=index if zero_based_indexing else index - 1)
@@ -1802,3 +1825,48 @@ def no_make_interval_sql(self: Generator, expression: exp.MakeInterval, sep: str
 def length_or_char_length_sql(self: Generator, expression: exp.Length) -> str:
     length_func = "LENGTH" if expression.args.get("binary") else "CHAR_LENGTH"
     return self.func(length_func, expression.this)
+
+
+def groupconcat_sql(
+    self: Generator,
+    expression: exp.GroupConcat,
+    func_name="LISTAGG",
+    sep: str = ",",
+    within_group: bool = True,
+    on_overflow: bool = False,
+) -> str:
+    this = expression.this
+    separator = expression.args.get("separator") or exp.Literal.string(sep)
+
+    on_overflow_sql = self.sql(expression, "on_overflow")
+    on_overflow_sql = f" ON OVERFLOW {on_overflow_sql}" if (on_overflow and on_overflow_sql) else ""
+
+    order = this.find(exp.Order)
+
+    if order and order.this:
+        this = order.this.pop()
+
+    args = self.format_args(this, f"{separator}{on_overflow_sql}")
+    listagg: exp.Expression = exp.Anonymous(this=func_name, expressions=[args])
+
+    if order:
+        if within_group:
+            listagg = exp.WithinGroup(this=listagg, expression=order)
+        else:
+            listagg.set("expressions", [f"{args}{self.sql(expression=expression.this)}"])
+
+    return self.sql(listagg)
+
+
+def build_timetostr_or_tochar(args: t.List, dialect: Dialect) -> exp.TimeToStr | exp.ToChar:
+    this = seq_get(args, 0)
+
+    if this and not this.type:
+        from sqlglot.optimizer.annotate_types import annotate_types
+
+        annotate_types(this)
+        if this.is_type(*exp.DataType.TEMPORAL_TYPES):
+            dialect_name = dialect.__class__.__name__.lower()
+            return build_formatted_time(exp.TimeToStr, dialect_name, default=True)(args)
+
+    return exp.ToChar.from_arg_list(args)
