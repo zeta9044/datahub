@@ -175,13 +175,6 @@ class SqlQueriesSource(Source):
             logger.info(f"Parsed {self.report.num_queries_parsed} queries")
         dialect = get_dialect(self.config.platform)
         sanitized_statement = parse_statement(entry.query, dialect=dialect)
-        try:
-            register_inferred_schema(
-                statement=sanitized_statement,
-                ctx=self.ctx)
-        except Exception as e:
-            logger.debug(f"At register_inferred_schema Error occurred :{e}, but operation is not affected.")
-
         sanitized_query = sanitized_statement.sql(pretty=True, dialect=dialect)
         result = sqlglot_lineage(
             sql=sanitized_query,
