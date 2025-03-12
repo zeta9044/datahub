@@ -4,6 +4,7 @@ import json
 import logging
 import typing as t
 from dataclasses import dataclass, field
+from sqlglot.expressions import Identifier,Select, From, With, Join, Subquery, Window
 
 from sqlglot import Schema, exp, maybe_parse
 from sqlglot.errors import SqlglotError
@@ -92,7 +93,7 @@ def lineage(
     """
 
     expression = maybe_parse(sql, dialect=dialect)
-    #column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
+    # column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
     assert isinstance(column, str)
 
     if sources:
@@ -306,6 +307,25 @@ def to_node(
         else:
             unpivot_column_mapping[column] = [exp.column(str(column), table=pivot.parent.this.name)]
 
+    # Helper function: Encapsulates the processing logic for pivot.parent.this
+    def process_pivot_parent(pivot_parent, col, table):
+        if isinstance(pivot_parent, (str, Identifier)):
+            return [exp.column(col.this, table=pivot_parent)]
+        elif isinstance(pivot_parent, (Select, From, With, Join, Subquery, Window)):
+            parent_scope = build_scope(pivot_parent)
+            to_node(
+                col.name,
+                scope=parent_scope,
+                dialect=dialect,
+                scope_name=table,
+                upstream=node,
+                source_name=source_names.get(table) or source_name,
+                reference_node_name=reference_node_name,
+                trim_selects=trim_selects,
+            )
+            return []
+        return []
+
     for c in source_columns:
         table = c.table
         source = scope.sources.get(table)
@@ -339,14 +359,15 @@ def to_node(
                 else:
                     # The column is not in the pivot, so it must be an implicit column of the
                     # pivoted source -- adapt column to be from the implicit pivoted source.
-                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
+                    downstream_columns.extend(process_pivot_parent(pivot.parent.this, c, table))
+
             if pivot.unpivot:
                 if any(
                     column_name == unpivot_column.name for unpivot_column in unpivot_source_columns
                 ):
                     downstream_columns.extend(unpivot_column_mapping[column_name])
                 else:
-                    downstream_columns.append(exp.column(c.this, table=pivot.parent.this))
+                    downstream_columns.extend(process_pivot_parent(pivot.parent.this, c, table))
 
             for downstream_column in downstream_columns:
                 table = downstream_column.table
