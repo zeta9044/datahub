@@ -389,7 +389,7 @@ def _prepare_query_columns(
                 statement,
                 dialect=dialect,
                 schema=sqlglot_db_schema,
-                qualify_columns=True,
+                qualify_columns=False,
                 validate_qualify_columns=False,
                 identify=True,
                 # sqlglot calls the db -> schema -> table hierarchy "catalog", "db", "table".
